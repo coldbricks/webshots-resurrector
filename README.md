@@ -4,8 +4,6 @@
 
 **Bring lost photos back to life.**
 
-*Why "Paisley Ponytail"? It sounds like a pony you would 100% not mess with. That's the energy this tool brings to your lost photos.*
-
 Webshots was a photo sharing service with 14 million users at its peak. In December 2012, the final owner deleted everything. Archive Team ran an emergency crawl and saved what they could — 105.9 TB of photos locked inside 2,437 megawarc blobs on the Internet Archive.
 
 The search tools died years ago. `warctozip.archive.org` has no DNS. The freeze-frame index links go nowhere, and the raw megawarcs are access-restricted now. But everything Archive Team saved was ingested into the **Wayback Machine** — and this tool is the key back in.
