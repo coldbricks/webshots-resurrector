@@ -41,6 +41,8 @@ original name and photo count. `pull` recovers everything and writes a
 your albums again, original titles, original captions, twenty years later.
 Yes, including the captions. You were very funny in 2004.
 
+![a real pull, replayed from the actual logs](assets/demo.gif)
+
 ![search — the flight-strip board](assets/screenshot_search.png)
 
 
@@ -150,6 +152,24 @@ archive.org is the only reason any of this still exists. All traffic funnels
 through one global rate limiter (~1 request/second sustained), a 429/503 from
 the tower slows *every* coroutine, retries back off exponentially, and deep
 sweeps are probe-capped. The pace is a feature. Fly the published procedure.
+
+## The NTSB docket
+
+The full accident investigation — what Webshots was, how fourteen million
+photo libraries went down with it, why the wreckage sat locked for a decade,
+and the complete reverse-engineering methodology that got it open: the
+three eras of URL architecture, the image-server problem, the digicam-and-
+dial-up physics behind `_fs`/`_ph`/`_th`, findings, probable cause, and
+recommendations.
+
+**[Read DOCKET.md →](DOCKET.md)**
+
+> **Operator's statement:** *It took me 9+ years to put this together, but
+> the biggest reverse engineering project in internet photo history has been
+> achieved. Now, I just need everyone to break it again.*
+
+The investigation remains open: if a screen name that should work comes back
+empty, [file a report](../../issues). Every failure mode gets investigated.
 
 ## Why this exists
 
