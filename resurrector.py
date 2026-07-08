@@ -5,11 +5,11 @@ Internet Archive Photo Recovery System
 
 Search for Webshots users and download their archived photos from
 the Wayback Machine.  Full-size originals when available, 800x600
-fallback otherwise.
+fallback, archived thumbnail as a last resort.
 
 Usage:
-    python3 resurrector.py search <username>
-    python3 resurrector.py pull   <username> [-j JOBS] [-o DIR]
+    python resurrector.py search <username> [--deep]
+    python resurrector.py pull   <username> [--deep] [--album ID] [-j JOBS] [-o DIR]
 """
 
 from __future__ import annotations
@@ -22,13 +22,17 @@ import re
 import sys
 from datetime import datetime, timezone
 
+from lib import __version__
 from lib.engine import Config, Engine, Stats
+from lib.gallery import write_gallery
 from lib.ui import (
     console,
     detail,
     dl_fail,
     dl_ok,
     dl_skip,
+    dl_thumb,
+    dl_upgrade,
     fail,
     make_progress,
     phase,
@@ -55,8 +59,15 @@ async def recon(
     url = f"community.webshots.com/user/{username}"
     rows = await engine.cdx_search(url)
 
+    if rows is None:
+        fail("RECON", "archive.org is unreachable right now — this is a")
+        fail("RECON", "network problem, NOT proof the photos are gone.")
+        detail("[dim]Wait a few minutes and try again.[/]")
+        return None
     if not rows:
         fail("RECON", f"No Wayback captures found for [target]{username}[/]")
+        detail("[dim]Double-check the screen name spelling; Webshots names[/]")
+        detail("[dim]were case-insensitive but typos are forever.[/]")
         return None
 
     timestamps = [r[1] for r in rows]
@@ -87,43 +98,60 @@ async def scan(
     _, html = await engine.load_profile(username, ts)
 
     albums: dict[str, tuple[str, str, str, str]] = {}  # album_id -> entry
+
+    def absorb(page_html: str, snap_ts: str):
+        for url, category, album_id in engine.extract_albums(page_html):
+            albums.setdefault(album_id, (url, category, album_id, snap_ts))
+
+    extra_pages: set[str] = set()
     if html:
-        for url, category, album_id in engine.extract_albums(html):
-            albums.setdefault(album_id, (url, category, album_id, ts))
+        absorb(html, ts)
+        extra_pages = engine.extract_profile_pages(html, username)
+
+    # Profile pagination linked from the latest profile (/user/NAME/2)
+    for page_url in sorted(extra_pages):
+        page_html = await engine.load_page(page_url, ts)
+        if page_html:
+            absorb(page_html, ts)
 
     if not albums:
         warn("SCAN", "No albums at latest timestamp, probing alternates...")
         timestamps = [r[1] for r in rows]
         for alt_ts in list(reversed(timestamps[:-1]))[:8]:
-            _, html = await engine.load_profile(username, alt_ts)
-            if html:
-                found = engine.extract_albums(html)
-                if found:
+            _, alt_html = await engine.load_profile(username, alt_ts)
+            if alt_html:
+                absorb(alt_html, alt_ts)
+                if albums:
                     ts = alt_ts
-                    for url, category, album_id in found:
-                        albums.setdefault(album_id, (url, category, album_id, ts))
                     success("SCAN", f"Found albums at {alt_ts}")
                     break
 
     if deep:
         phase("DEEP", "Enumerating profile-page variants via CDX prefix search...")
         pages = await engine.discover_profile_pages(username)
+        if pages is None:
+            warn("DEEP", "CDX unreachable — deep enumeration skipped this run")
+            pages = []
         success("DEEP", f"{len(pages)} archived profile pages across all eras")
+        probes = [
+            (url, snap_ts)
+            for url, ts_list in pages
+            for snap_ts in engine.sample_timestamps(ts_list, 4)
+        ]
+        if len(probes) > engine.cfg.deep_probe_cap:
+            warn(
+                "DEEP",
+                f"{len(probes)} probes capped at {engine.cfg.deep_probe_cap} "
+                "to stay polite to archive.org",
+            )
+            probes = probes[: engine.cfg.deep_probe_cap]
+        before = len(albums)
         with make_progress(transient=True) as progress:
-            # Probe each page at its first and last capture — album sets
-            # changed across the site's decade, so eras matter.
-            probes = [
-                (url, snap_ts)
-                for url, ts_list in pages
-                for snap_ts in dict.fromkeys((ts_list[0], ts_list[-1]))
-            ]
             task = progress.add_task("Deep scan", total=len(probes))
-            before = len(albums)
             for url, snap_ts in probes:
                 page_html = await engine.load_page(url, snap_ts)
                 if page_html:
-                    for a_url, category, album_id in engine.extract_albums(page_html):
-                        albums.setdefault(album_id, (a_url, category, album_id, snap_ts))
+                    absorb(page_html, snap_ts)
                 progress.advance(task)
         gained = len(albums) - before
         if gained:
@@ -137,6 +165,13 @@ async def scan(
 
     success("SCAN", f"[bold]{len(albums)}[/] albums identified")
     return ts, list(albums.values())
+
+
+def _album_dir_name(category: str, album_id: str, title: str | None) -> str:
+    """Human-readable, collision-proof album folder name."""
+    label = title or category or "album"
+    slug = re.sub(r"[^\w\-. ]", "", label).strip().replace(" ", "_")[:40]
+    return f"{slug}_{album_id}" if slug else album_id
 
 
 # ── Commands ────────────────────────────────────────────────────────────
@@ -154,23 +189,26 @@ async def cmd_search(username: str, engine: Engine, deep: bool = False) -> None:
         return
     ts, albums_raw = scan_result
 
-    # Count photos per album
     phase("SCAN", f"Counting photos in {len(albums_raw)} albums...")
-    album_data: list[tuple[str, str, int]] = []
+    album_data: list[tuple[str, str, int, str | None]] = []
     total_photos = 0
+    pages_failed = 0
 
     with make_progress(transient=True) as progress:
         task = progress.add_task("Scanning", total=len(albums_raw))
         for url, category, album_id, album_ts in albums_raw:
-            thumbs = await engine.load_album(url, album_ts)
-            album_data.append((url, category, len(thumbs)))
-            total_photos += len(thumbs)
+            entries, meta = await engine.load_album(url, album_ts)
+            album_data.append((url, category, len(entries), meta["title"]))
+            total_photos += len(entries)
+            pages_failed += meta["pages_failed"]
             progress.advance(task)
 
     console.print()
     show_albums_table(album_data)
     console.print()
     success("SCAN", f"[bold]{total_photos}[/] photos across {len(albums_raw)} albums")
+    if pages_failed:
+        warn("SCAN", f"{pages_failed} album pages unreachable — pull may find more on retry")
     console.print()
     detail(
         f"[ok]CLEARED FOR PULL[/] [dim]▸[/] "
@@ -184,6 +222,7 @@ async def cmd_pull(
     engine: Engine,
     output_root: str = "output",
     deep: bool = False,
+    only_albums: list[str] | None = None,
 ) -> None:
     """Download all photos for a user."""
     result = await recon(username, engine)
@@ -196,36 +235,45 @@ async def cmd_pull(
         return
     ts, albums_raw = scan_result
 
+    if only_albums:
+        wanted = set(only_albums)
+        albums_raw = [a for a in albums_raw if a[2] in wanted]
+        if not albums_raw:
+            fail("SCAN", f"No albums matched --album {', '.join(only_albums)}")
+            return
+        phase("SCAN", f"Filtered to {len(albums_raw)} requested album(s)")
+
     # ── Build photo manifest ────────────────────────────────────────
     phase("SCAN", f"Building photo manifest from {len(albums_raw)} albums...")
 
-    all_thumbs: list[tuple[str, str, str, str]] = []  # (ts, url, album_id, cat)
-    album_data: list[tuple[str, str, int]] = []
+    album_infos: list[dict] = []
+    album_data: list[tuple[str, str, int, str | None]] = []
+    pages_failed = 0
 
     with make_progress(transient=True) as progress:
         task = progress.add_task("Scanning albums", total=len(albums_raw))
         for url, category, album_id, album_ts in albums_raw:
-            thumbs = await engine.load_album(url, album_ts)
-            album_data.append((url, category, len(thumbs)))
-            for t_ts, t_url in thumbs:
-                all_thumbs.append((t_ts, t_url, album_id, category))
+            entries, meta = await engine.load_album(url, album_ts)
+            pages_failed += meta["pages_failed"]
+            album_data.append((url, category, len(entries), meta["title"]))
+            album_infos.append({
+                "id": album_id,
+                "url": url,
+                "category": category,
+                "title": meta["title"],
+                "ts": album_ts,
+                "entries": entries,   # (thumb_ts, thumb_url, photo_page|None)
+                "photos": [],
+            })
             progress.advance(task)
 
     console.print()
     show_albums_table(album_data)
 
-    # Deduplicate by thumbnail URL
-    seen: set[str] = set()
-    unique: list[tuple[str, str, str, str]] = []
-    for item in all_thumbs:
-        if item[1] not in seen:
-            seen.add(item[1])
-            unique.append(item)
-
+    total = sum(len(a["entries"]) for a in album_infos)
     console.print()
-    success("SCAN", f"[bold]{len(unique)}[/] unique photos in manifest")
-
-    if not unique:
+    success("SCAN", f"[bold]{total}[/] photos in manifest")
+    if not total:
         return
 
     # ── Download ────────────────────────────────────────────────────
@@ -233,61 +281,92 @@ async def cmd_pull(
     os.makedirs(output_dir, exist_ok=True)
 
     stats = Stats()
+    stats.pages_failed = pages_failed
     phase(
         "PULL",
-        f"Extracting {len(unique)} photos  "
+        f"Extracting {total} photos  "
         f"([bold]{engine.cfg.max_concurrent}[/] concurrent)",
     )
     console.print()
 
+    interrupted = False
     with make_progress() as progress:
-        task = progress.add_task(f"Pulling {username}", total=len(unique))
+        task = progress.add_task(f"Pulling {username}", total=total)
 
-        async def _dl(thumb_ts, thumb_url, album_id, category):
-            safe = re.sub(r"[^\w\-.]", "_", f"{category}_{album_id}")[:60]
-            album_dir = os.path.join(output_dir, safe)
+        async def _dl(album: dict, thumb_ts: str, thumb_url: str, photo_page: str | None):
+            dir_name = _album_dir_name(album["category"], album["id"], album["title"])
+            album_dir = os.path.join(output_dir, dir_name)
             os.makedirs(album_dir, exist_ok=True)
+            album["dir"] = dir_name
 
-            pid = engine.photo_id(thumb_url) or "unknown"
-            path, variant, size = await engine.download_photo(
-                thumb_ts, thumb_url, album_dir, stats
-            )
+            try:
+                record = await engine.download_photo(
+                    thumb_ts, thumb_url, photo_page, album_dir, stats
+                )
+            except Exception as exc:  # one bad photo must never kill the run
+                stats.failed += 1
+                record = {"id": engine.photo_id(thumb_url), "variant": "failed",
+                          "size": 0, "error": str(exc)[:200]}
+            album["photos"].append(record)
 
-            if variant == "fs":
-                dl_ok("fs", size, f"{pid}_fs.jpg")
-            elif variant == "ph":
-                dl_ok("ph", size, f"{pid}_ph.jpg")
+            pid = record.get("id") or "unknown"
+            variant = record.get("variant")
+            if variant in ("fs", "ph"):
+                if variant == "fs" and record.get("upgraded"):
+                    dl_upgrade(record["size"], record.get("file", pid))
+                else:
+                    dl_ok(variant, record["size"], record.get("file", pid))
+            elif variant == "th":
+                dl_thumb(record["size"], record.get("file", pid))
             elif variant == "skip":
-                dl_skip(f"{pid}")
+                dl_skip(pid)
             else:
                 dl_fail(pid)
-
             progress.advance(task)
 
-        tasks = [_dl(t, u, a, c) for t, u, a, c in unique]
-        await asyncio.gather(*tasks)
+        tasks = [
+            _dl(album, t_ts, t_url, photo)
+            for album in album_infos
+            for t_ts, t_url, photo in album["entries"]
+        ]
+        try:
+            await asyncio.gather(*tasks)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            interrupted = True
 
-    # ── Manifest ────────────────────────────────────────────────────
+    # ── Manifest + gallery ──────────────────────────────────────────
+    for album in album_infos:
+        album.pop("entries", None)
+        album.setdefault("dir", _album_dir_name(
+            album["category"], album["id"], album["title"]))
+
     manifest = {
         "tool": "webshots-resurrector",
         "codename": "Paisley Ponytail",
-        "version": "1.1.0",
+        "version": __version__,
         "user": username,
         "wayback_timestamp": ts,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
-        "albums": len(albums_raw),
-        "photos_found": len(unique),
-        "downloaded": stats.downloaded,
-        "failed": stats.failed,
-        "skipped": stats.skipped,
-        "bytes": stats.bytes,
-        "elapsed_sec": round(stats.elapsed, 2),
+        "interrupted": interrupted,
+        "totals": stats.as_dict(),
+        "albums": [
+            {k: v for k, v in a.items() if k != "ts"} for a in album_infos
+        ],
     }
     manifest_path = os.path.join(output_dir, "manifest.json")
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
 
+    gallery_path = write_gallery(
+        output_dir, username, album_infos, stats.as_dict()
+    )
+
+    if interrupted:
+        warn("PULL", "Interrupted — progress saved; rerun the same command to resume")
     show_summary(stats.as_dict(os.path.abspath(output_dir)))
+    console.print()
+    success("PULL", f"Contact sheet: [bold]{os.path.abspath(gallery_path)}[/]")
+    detail("[dim]Open it in a browser — that's your photos back.[/]")
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────
@@ -300,18 +379,23 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  python3 resurrector.py search bexbee12\n"
-            "  python3 resurrector.py pull   bexbee12 -j 6\n"
-            "  python3 resurrector.py pull   yankeefan519 -o ~/recovered\n"
+            "  python resurrector.py search bexbee12\n"
+            "  python resurrector.py search bexbee12 --deep\n"
+            "  python resurrector.py pull   bexbee12 -j 6\n"
+            "  python resurrector.py pull   bexbee12 --album 330301954fOVqeb\n"
         ),
     )
-
-    sub = parser.add_subparsers(dest="command")
+    parser.add_argument(
+        "--version", action="version",
+        version=f"Paisley Ponytail v{__version__} (the Webshots Resurrector)",
+    )
 
     deep_help = (
         "enumerate every archived profile-page variant via CDX prefix "
         "search — finds albums from older site eras (2002-2013)"
     )
+
+    p_search = sub = parser.add_subparsers(dest="command")
 
     p_search = sub.add_parser("search", help="Search for a user, list albums and photo counts")
     p_search.add_argument("username", help="Webshots username to look up")
@@ -321,11 +405,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_pull.add_argument("username", help="Webshots username to download")
     p_pull.add_argument("--deep", action="store_true", help=deep_help)
     p_pull.add_argument(
+        "--album", action="append", metavar="ID",
+        help="only pull this album ID (repeatable)",
+    )
+    p_pull.add_argument(
         "-o", "--output", default="output", help="Output root directory (default: output/)"
     )
     p_pull.add_argument(
         "-j", "--jobs", type=int, default=4, metavar="N",
-        help="Concurrent downloads (default: 4)",
+        help="Concurrent downloads (default: 4, max 8)",
     )
 
     return parser
@@ -343,7 +431,7 @@ def main() -> None:
 
     cfg = Config()
     if hasattr(args, "jobs"):
-        cfg.max_concurrent = max(1, min(args.jobs, 12))
+        cfg.max_concurrent = max(1, min(args.jobs, 8))
 
     async def _run():
         async with Engine(cfg) as engine:
@@ -352,12 +440,16 @@ def main() -> None:
                 await cmd_search(args.username, engine, deep=deep)
             elif args.command == "pull":
                 out = getattr(args, "output", "output")
-                await cmd_pull(args.username, engine, out, deep=deep)
+                await cmd_pull(
+                    args.username, engine, out,
+                    deep=deep, only_albums=getattr(args, "album", None),
+                )
 
     try:
         asyncio.run(_run())
     except KeyboardInterrupt:
-        console.print("\n [dim]Operation cancelled.[/]")
+        console.print("\n [warn]Interrupted.[/] [dim]Progress is saved — rerun the same"
+                      " command to resume where you left off.[/]")
         sys.exit(130)
 
 

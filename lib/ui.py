@@ -29,6 +29,8 @@ from rich.progress import (
 )
 from rich.theme import Theme
 
+from lib import __version__
+
 THEME = Theme(
     {
         "phase": "bold bright_green",
@@ -48,7 +50,7 @@ THEME = Theme(
 
 console = Console(theme=THEME, highlight=False)
 
-VERSION = "1.1.0"
+VERSION = __version__
 
 
 def _zulu() -> str:
@@ -148,6 +150,20 @@ def dl_skip(filename):
     )
 
 
+def dl_thumb(size, filename):
+    console.print(
+        f" [zulu]{_zulu()}[/]   [amber]THUMB ONLY[/]  {size:>9,}B  [dim]{filename}  "
+        f"(full image never archived)[/]"
+    )
+
+
+def dl_upgrade(size, filename):
+    console.print(
+        f" [zulu]{_zulu()}[/]   [ok]UPGRADED FS[/] {size:>9,}B  [dim]{filename}  "
+        f"(replaced 800x600 with original)[/]"
+    )
+
+
 def dl_fail(filename):
     console.print(
         f" [zulu]{_zulu()}[/]   [err]MISSED APCH[/]  not recoverable  [dim]{filename}[/]"
@@ -160,7 +176,7 @@ def dl_fail(filename):
 def show_albums_table(albums):
     """Display album scan results as a flight-strip board.
 
-    albums: list of (url, category, photo_count)
+    albums: list of (url, category, photo_count, title)
     """
     table = Table(
         show_header=True,
@@ -172,13 +188,20 @@ def show_albums_table(albums):
         title_justify="left",
     )
     table.add_column("STRIP", style="dim", width=5, justify="right")
-    table.add_column("SQUAWK · ALBUM ID", style="scope", max_width=38)
+    table.add_column("ALBUM", style="bold white", max_width=30)
+    table.add_column("SQUAWK · ID", style="scope", max_width=20)
     table.add_column("SECTOR", style="bold green", max_width=14)
     table.add_column("PHOTOS", style="bold white", justify="right", width=7)
 
-    for i, (url, category, count) in enumerate(albums, 1):
+    for i, (url, category, count, title) in enumerate(albums, 1):
         album_id = url.split("/album/")[1] if "/album/" in url else url[-30:]
-        table.add_row(f"{i:03d}", album_id[:38], category[:14].upper(), str(count))
+        table.add_row(
+            f"{i:03d}",
+            (title or "—")[:30],
+            album_id[:20],
+            category[:14].upper(),
+            str(count),
+        )
 
     console.print(table)
 
@@ -194,7 +217,7 @@ def show_summary(stats):
     ok = stats["downloaded"]
     bad = stats["failed"]
     skip = stats["skipped"]
-    total_found = ok + bad + skip
+    total_found = ok + bad + skip + stats.get("thumbs_only", 0)
 
     table = Table(show_header=False, padding=(0, 2), box=None)
     table.add_column("K", style="dim green", width=22)
@@ -202,10 +225,16 @@ def show_summary(stats):
 
     table.add_row("TRAFFIC (photos found)", str(total_found))
     table.add_row("RECOVERED (landed)", f"[ok]{ok}[/]")
+    if stats.get("upgraded"):
+        table.add_row("UPGRADED TO FULL-SIZE", f"[ok]{stats['upgraded']}[/]")
+    if stats.get("thumbs_only"):
+        table.add_row("THUMBNAIL ONLY", f"[amber]{stats['thumbs_only']}[/]")
     if bad:
         table.add_row("MISSED APPROACHES", f"[err]{bad}[/]")
     if skip:
         table.add_row("AT GATE (already had)", f"[dim]{skip}[/]")
+    if stats.get("pages_failed"):
+        table.add_row("ALBUM PAGES UNREACHED", f"[warn]{stats['pages_failed']}[/]")
     table.add_row("PAYLOAD", f"{stats['bytes'] / 1024 / 1024:.1f} MB")
     table.add_row("BLOCK TIME", f"{stats['elapsed']:.1f}s")
     if stats["elapsed"] > 0:

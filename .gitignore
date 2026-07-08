@@ -1,5 +1,5 @@
 cache/
-output/
+output*/
 __pycache__/
 *.pyc
 .env
