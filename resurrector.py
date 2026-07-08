@@ -38,6 +38,7 @@ from lib.ui import (
     phase,
     show_albums_table,
     show_banner,
+    show_callsigns_table,
     show_summary,
     success,
     warn,
@@ -172,6 +173,93 @@ def _album_dir_name(category: str, album_id: str, title: str | None) -> str:
     label = title or category or "album"
     slug = re.sub(r"[^\w\-. ]", "", label).strip().replace(" ", "_")[:40]
     return f"{slug}_{album_id}" if slug else album_id
+
+
+def _prefix_variants(query: str) -> list[str]:
+    """People half-remember names with spaces; Webshots never had them.
+
+    "cool dave" sweeps cooldave, cool_dave, and cool-dave.
+    """
+    q = query.strip().lower()
+    if " " not in q:
+        return [q]
+    parts = q.split()
+    return list(dict.fromkeys(["".join(parts), "_".join(parts), "-".join(parts)]))
+
+
+async def cmd_find(
+    query: str, engine: Engine, top: int = 30, output_root: str = "output"
+) -> None:
+    """Sweep the archive's index for screen names matching a prefix."""
+    variants = _prefix_variants(query)
+    if any(len(v) < 2 for v in variants):
+        fail("SWEEP", "Prefix too short — give me at least 2 characters")
+        return
+
+    merged: dict[str, dict] = {}
+    truncated = False
+    for v in variants:
+        phase("SWEEP", f"Scanning frequency for callsigns matching [target]{v}*[/]")
+        result = await engine.find_usernames(v)
+        if result is None:
+            fail("SWEEP", "archive.org is unreachable right now — try again shortly")
+            return
+        found, was_truncated = result
+        truncated = truncated or was_truncated
+        for r in found:
+            key = r["name"].lower()
+            prev = merged.get(key)
+            if prev is None:
+                merged[key] = r
+            else:
+                prev["pages"] += r["pages"]
+                prev["first"] = min(prev["first"], r["first"])
+                prev["last"] = max(prev["last"], r["last"])
+
+    if not merged:
+        fail("SWEEP", f"No archived screen names start with [target]{query}[/]")
+        detail("[dim]Try a shorter prefix — even just the first few letters.[/]")
+        return
+
+    ranked = sorted(merged.values(), key=lambda r: (-r["pages"], r["name"].lower()))
+    shown = ranked[:top]
+
+    console.print()
+    show_callsigns_table(shown, len(ranked))
+    console.print()
+    success("SWEEP", f"[bold]{len(ranked)}[/] callsigns on frequency")
+    if truncated:
+        warn("SWEEP", "Index scan hit its cap — matches beyond it aren't listed; narrow the prefix")
+
+    # ── Say intentions ──────────────────────────────────────────────
+    if not sys.stdin.isatty():
+        detail("[dim]Run [bold]search <name>[/bold] on a strip to see its albums.[/]")
+        return
+
+    while True:
+        console.print()
+        try:
+            answer = console.input(
+                " [phase]SAY INTENTIONS[/] [dim]▸[/] "
+                "[bold]#[/][dim]=search strip · [/]"
+                "[bold]p#[/][dim]=pull strip · [/]"
+                "[dim]Enter=stand by ▸ [/]"
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not answer:
+            break
+        pull_it = answer.startswith("p")
+        num = answer.lstrip("p").strip()
+        if not num.isdigit() or not (1 <= int(num) <= len(shown)):
+            warn("SWEEP", f"Say again — that's not a strip number on the board (1-{len(shown)})")
+            continue
+        name = shown[int(num) - 1]["name"]
+        console.print()
+        if pull_it:
+            await cmd_pull(name, engine, output_root)
+            break
+        await cmd_search(name, engine)
 
 
 # ── Commands ────────────────────────────────────────────────────────────
@@ -391,6 +479,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
+            "  python resurrector.py find   cooldave        (half-remembered? list matches)\n"
+            "  python resurrector.py find   cool dave       (spaces handled: cooldave/cool_dave/cool-dave)\n"
             "  python resurrector.py search bexbee12\n"
             "  python resurrector.py search bexbee12 --deep\n"
             "  python resurrector.py pull   bexbee12 -j 6\n"
@@ -407,7 +497,20 @@ def build_parser() -> argparse.ArgumentParser:
         "search — finds albums from older site eras (2002-2013)"
     )
 
-    p_search = sub = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command")
+
+    p_find = sub.add_parser(
+        "find",
+        help="Half-remember a screen name? List every archived name matching a prefix",
+    )
+    p_find.add_argument(
+        "prefix", nargs="+",
+        help="start of the screen name (spaces OK: 'cool dave' tries cooldave/cool_dave/cool-dave)",
+    )
+    p_find.add_argument(
+        "-n", "--top", type=int, default=30, metavar="N",
+        help="show at most N matches (default: 30)",
+    )
 
     p_search = sub.add_parser("search", help="Search for a user, list albums and photo counts")
     p_search.add_argument("username", help="Webshots username to look up")
@@ -448,7 +551,9 @@ def main() -> None:
     async def _run():
         async with Engine(cfg) as engine:
             deep = getattr(args, "deep", False)
-            if args.command == "search":
+            if args.command == "find":
+                await cmd_find(" ".join(args.prefix), engine, top=max(1, args.top))
+            elif args.command == "search":
                 await cmd_search(args.username, engine, deep=deep)
             elif args.command == "pull":
                 out = getattr(args, "output", "output")

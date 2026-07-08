@@ -17,7 +17,7 @@ import os
 import re
 import time
 from html import unescape
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -141,6 +141,9 @@ RE_PAGE_IMAGE = re.compile(
     r"/[^\"'<>\s]+_(?:ph|fs)\.jpg)"
 )
 RE_TITLE = re.compile(r"<title>([^<]{1,200})</title>", re.IGNORECASE)
+RE_USER_PAGE = re.compile(
+    r"^https?://community\.webshots\.com(?::80)?/user/([^/?#]+)", re.IGNORECASE
+)
 
 
 # ── Engine ──────────────────────────────────────────────────────────────
@@ -444,6 +447,57 @@ class Engine:
                         break
 
         return list(entries.values()), meta
+
+    # ── Callsign sweep (username discovery) ─────────────────────────
+
+    async def find_usernames(
+        self, prefix: str, cap: int = 5000
+    ) -> tuple[list[dict], bool] | None:
+        """List archived screen names starting with `prefix`.
+
+        One CDX prefix query, collapsed to unique URLs — the archive's
+        own index doubles as a username autocomplete.  Returns
+        ([{name, pages, first, last}, ...], truncated) or None on
+        transport failure.  `pages` counts distinct archived user-page
+        URLs — a proxy for how substantial the account was.
+        """
+        rows = await self.cdx_search(
+            f"community.webshots.com/user/{prefix}",
+            match_type="prefix",
+            collapse="urlkey",
+            status_filter="200",
+            limit=cap,
+        )
+        if rows is None:
+            return None
+        users: dict[str, dict] = {}
+        for row in rows:
+            ts, original = row[1], row[2]
+            m = RE_USER_PAGE.match(original)
+            if not m:
+                continue
+            # /user/NAME-date is the site's date-sorted view, not a user
+            cased = re.sub(r"-date$", "", unquote(m.group(1)), flags=re.IGNORECASE)
+            if not cased:
+                continue
+            u = users.setdefault(
+                cased.lower(),
+                {"casings": {}, "pages": 0, "first": ts, "last": ts},
+            )
+            u["casings"][cased] = u["casings"].get(cased, 0) + 1
+            u["pages"] += 1
+            u["first"] = min(u["first"], ts)
+            u["last"] = max(u["last"], ts)
+        results = [
+            {
+                "name": max(u["casings"], key=u["casings"].get),
+                "pages": u["pages"],
+                "first": u["first"],
+                "last": u["last"],
+            }
+            for u in users.values()
+        ]
+        return results, len(rows) >= cap
 
     # ── Deep discovery (CDX prefix enumeration) ─────────────────────
 

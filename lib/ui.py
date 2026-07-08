@@ -206,6 +206,41 @@ def show_albums_table(albums):
     console.print(table)
 
 
+def show_callsigns_table(rows, total_found):
+    """Display username-sweep results.
+
+    rows: list of {name, pages, first, last} dicts, already ordered.
+    """
+    table = Table(
+        show_header=True,
+        header_style="strip",
+        padding=(0, 1),
+        border_style="dim green",
+        box=box.HEAVY_HEAD,
+        title="[bold green]▮▮ CALLSIGNS ON FREQUENCY ▮▮[/]",
+        title_justify="left",
+    )
+    table.add_column("STRIP", style="dim", width=5, justify="right")
+    table.add_column("SCREEN NAME", style="bold white", max_width=32)
+    table.add_column("ARCHIVED PAGES", style="scope", justify="right", width=14)
+    table.add_column("FIRST SEEN", style="dim", width=10)
+    table.add_column("LAST SEEN", style="dim", width=10)
+
+    def _d(ts):
+        return f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}" if len(ts) >= 8 else ts
+
+    for i, r in enumerate(rows, 1):
+        table.add_row(
+            f"{i:03d}", r["name"][:32], str(r["pages"]), _d(r["first"]), _d(r["last"])
+        )
+    console.print(table)
+    if total_found > len(rows):
+        console.print(
+            f"         [dim]{total_found - len(rows)} more matches not shown — "
+            f"narrow the prefix or raise -n[/]"
+        )
+
+
 # ── Debrief (final summary) ─────────────────────────────────────────────
 
 

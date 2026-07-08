@@ -31,6 +31,7 @@ exactly how Webshots ran things, which you probably now regret.
 ## Cleared for departure
 
 ```
+python resurrector.py find   cooldave           # half-remember the name? sweep for it
 python resurrector.py search yourscreenname     # what's on the scope?
 python resurrector.py pull   yourscreenname     # bring it home
 ```
@@ -57,6 +58,13 @@ python resurrector.py search yourscreenname --deep      # dig back to 2002
 python resurrector.py pull   yourscreenname --album ID  # one album only
 python resurrector.py pull   yourscreenname -j 6        # more concurrency (max 8)
 ```
+
+**Only half-remember the name?** `find` sweeps the archive's own index for
+every screen name matching a prefix and boards them as numbered strips —
+screen name, how many archived pages, first and last seen. Then just say
+intentions: type `3` to search strip 3, `p3` to pull it on the spot. Spaces
+are handled — `find cool dave` sweeps `cooldave`, `cool_dave`, and
+`cool-dave` — because Webshots names never had spaces but memories do.
 
 `--deep` runs a CDX prefix sweep over every archived variant of your profile —
 pagination pages, the date-sorted view, every site redesign from 2002 to 2013 —
