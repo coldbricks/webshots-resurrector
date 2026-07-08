@@ -77,8 +77,8 @@ screen name
                       └─▸ _fs.jpg original → _ph.jpg 800×600 → thumbnail
 ```
 
-Two hard-won facts drive the design, both established by adversarial testing
-against live archive data:
+Two hard-won facts drive the design, both established empirically against live
+archive data — every claim below survived independent attempts to refute it:
 
 - **You cannot guess a photo's image server.** A thumbnail on `thumb13` maps
   to full-size copies on `image04`, `image12`, `image20` — unrelated numbers.
@@ -94,6 +94,28 @@ against live archive data:
 Every photo descends a fallback ladder — real full-size, real 800×600, derived
 guesses, and finally the archived thumbnail itself — so you always land with
 *something*, and the manifest records exactly which rung each photo reached.
+
+### Field notes from the wreckage
+
+Things the archive will not tell you until you hit them:
+
+- The CDX API interprets `limit=-1` as *"return only the last row."* An early
+  version of this tool queried with `-1` for "unlimited" and silently saw 1 of
+  33 snapshots for its own test user. If you build on the CDX API, know this.
+- Some full-size images were archived **as their 404 pages** — the crawler
+  arrived after the image server had already given up, and Wayback faithfully
+  preserved the failure. Downloads are validated by JPEG magic bytes, never by
+  HTTP status alone.
+- Wayback playback rewrites the same `href` absolute on one page and
+  host-relative on the next, depending on which rendering path served it.
+  Every extractor here accepts both, because trusting one form loses photos.
+- Album grids emit each thumbnail *twice* — anchor-less in a filmstrip widget,
+  anchored in the photo grid. First-match pairing silently drops a third of
+  the photo-page links; the parser prefers the anchored occurrence, including
+  across pagination boundaries.
+- A photo that fails today is retried in full on every future run, on purpose:
+  the Internet Archive occasionally backfills. Definitive absence (a real 404
+  on every candidate URL) is cached in a marker file; ambiguity is not.
 
 ## Reading the instruments
 
