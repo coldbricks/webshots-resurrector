@@ -63,8 +63,11 @@ community.webshots.com/user/NAME          profile (also /NAME/2, /NAME-date/0 pa
 SUBDOMAIN.webshots.com/album/ID           album; crawl-era pagination ?start=N (grid ~42/page),
                                           2002-05 era pagination /album/ID/N
 SUBDOMAIN.webshots.com/photo/LONGID       photo detail page — contains the REAL image URL
-imageNN.webshots.com/...jpg               image servers; NN unrelated to thumb host NN
-thumbNN.webshots.net/...  (crawl era)     thumbnails; .COM host in 2002-2005 era
+imageNN.webshots.com/...jpg               crawl-era image servers; NN unrelated to thumb host NN
+community.webshots.com/sym/imageN/...jpg  OLD-ERA (2002-05) images; N = the /s/thumbN PATH digit
+                                          (derivable! verified vs 2003 photo page; archive coverage patchy)
+thumbNN.webshots.net/...  (crawl era)     thumbnails; .COM host + /s/thumbN/ paths in 2002-2005 era
+                                          (old thumb HOST digit is a per-image load balancer — meaningless)
 _fs.jpg = original resolution | _ph.jpg = 800×600 | _th.jpg = 100×75
 Album grids: thumbs appear anchor-less in filmstrip widgets AND anchored in the
 grid — pairing must prefer the anchored occurrence (cross-page too).
@@ -94,4 +97,4 @@ Album titles: attribute-less <h1>; <title> is a generic slogan.
 
 - Windows first: UTF-8 stdout forced in `lib/ui.py` before rich binds (cp1252 crashed v1.0). Docs say `python`, not `python3`.
 - Test extraction offline against saved album HTML before hitting archive.org (scratchpad keeps `album_test.html`).
-- Known gaps: old-era (2002-05) album pages found by `--deep` still yield 0 photos pending era-specific extraction validation; CDX enumeration of ?start pages (vs HTML-link following) not implemented.
+- Known gaps: CDX enumeration of ?start pages (vs HTML-link following) not implemented; old-era photo detail pages are sparsely archived, so old-era captions are rare and recovery there leans on the sym/imageN derivation + thumbnail fallback.

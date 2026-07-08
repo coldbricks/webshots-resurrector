@@ -136,7 +136,9 @@ RE_ALBUM_LINK = re.compile(
 )
 RE_PAGE_IMAGE = re.compile(
     r"(?:https?://web\.archive\.org)?/web/(\d+)(?:im_)?/"
-    r"(https?://image\d+\.webshots\.(?:com|net)/[^\"'<>\s]+_(?:ph|fs)\.jpg)"
+    r"(https?://(?:image\d+\.webshots\.(?:com|net)"
+    r"|community\.webshots\.com(?::80)?/sym/image\d+)"
+    r"/[^\"'<>\s]+_(?:ph|fs)\.jpg)"
 )
 RE_TITLE = re.compile(r"<title>([^<]{1,200})</title>", re.IGNORECASE)
 
@@ -357,6 +359,8 @@ class Engine:
         if not m:
             return None
         title = unescape(m.group(1)).strip()
+        # Old-era pages prefix titles with the site name.
+        title = re.sub(r"^Webshots Community\s*-\s*", "", title, flags=re.IGNORECASE)
         # "AlbumName pictures from travel photos on webshots" et al.
         title = re.sub(
             r"\s*(pictures? from|photos? (?:and videos? )?(?:on|at)|- webshots).*$",
@@ -489,34 +493,42 @@ class Engine:
     # ── URL derivation (legacy heuristic — fallback only) ───────────
 
     @staticmethod
-    def thumb_to_image(thumb_url: str, suffix: str = "_fs.jpg") -> str | None:
-        """GUESS an imageNN URL from a thumbnail URL.
+    def thumb_candidates(thumb_url: str, suffix: str = "_fs.jpg") -> list[str]:
+        """GUESS image URLs from a thumbnail URL, best-first.
 
-        Audit-confirmed unreliable: the real image server number is not
-        derivable from the thumb URL (thumb13 photos live on image04,
-        image12, image20...).  Kept only as a fallback when the photo
-        detail page was never archived.
+        Crawl-era hosts are audit-confirmed non-derivable (thumb13
+        photos live on image04, image12, image20...), so these are
+        fallbacks when the photo detail page was never archived.
+
+        Old era (2002-2005) IS derivable: /s/thumbN/ thumbnails map to
+        community.webshots.com/sym/imageN/ using the PATH digit —
+        verified against the one archived 2003 photo page
+        (sym/image4/0/50/81/71105081mpCGrT_fs.jpg from /s/thumb4/...).
         """
         m_host = re.match(r"https?://thumb(\d+)\.webshots\.(?:net|com)/", thumb_url)
         if not m_host:
-            return None
-        num = m_host.group(1)
+            return []
+        host_n = m_host.group(1)
 
-        m_s = re.search(r"/s/thumb\d+/(.+)_th\.jpg$", thumb_url)
+        m_s = re.search(r"/s/thumb(\d+)/(.+)_th\.jpg$", thumb_url)
         if m_s:
-            return f"http://image{num}.webshots.com/{num}/{m_s.group(1)}{suffix}"
+            path_n, tail = m_s.groups()
+            return [
+                f"http://community.webshots.com/sym/image{path_n}/{tail}{suffix}",
+                f"http://image{host_n}.webshots.com/{host_n}/{tail}{suffix}",
+            ]
 
         # /t/A/B/rest: drop the A/B pair (observed real form is
         # imageXX.webshots.com/XX/rest)
         m_t = re.search(r"/t/\d+/\d+/(.+)_th\.jpg$", thumb_url)
         if m_t:
-            return f"http://image{num}.webshots.com/{num}/{m_t.group(1)}{suffix}"
+            return [f"http://image{host_n}.webshots.com/{host_n}/{m_t.group(1)}{suffix}"]
 
         m_plain = re.search(r"/t/(.+)_th\.jpg$", thumb_url)
         if m_plain:
-            return f"http://image{num}.webshots.com/{num}/{m_plain.group(1)}{suffix}"
+            return [f"http://image{host_n}.webshots.com/{host_n}/{m_plain.group(1)}{suffix}"]
 
-        return None
+        return []
 
     @staticmethod
     def photo_id(thumb_url: str) -> str | None:
@@ -594,14 +606,18 @@ class Engine:
                 record.update(variant="skip", size=os.path.getsize(fs_path),
                               file=os.path.basename(fs_path))
                 return record
-            # _ph on disk is final only if _fs is known-absent;
-            # otherwise this run attempts an _fs upgrade.
+            # _ph (or last-resort _th) on disk is final only if _fs is
+            # known-absent; otherwise this run attempts an upgrade.
             had_ph = _ok(ph_path)
-            if had_ph and os.path.isfile(fs404_marker):
-                stats.skipped += 1
-                record.update(variant="skip", size=os.path.getsize(ph_path),
-                              file=os.path.basename(ph_path))
-                return record
+            th_path = os.path.join(output_dir, f"{pid}_th.jpg")
+            if os.path.isfile(fs404_marker):
+                for existing in (ph_path, th_path):
+                    if os.path.isfile(existing) and os.path.getsize(existing) > 300:
+                        stats.skipped += 1
+                        record.update(variant="skip",
+                                      size=os.path.getsize(existing),
+                                      file=os.path.basename(existing))
+                        return record
 
             # ── Resolve the real image URL from the photo page ──────
             real_url: str | None = None
@@ -617,9 +633,9 @@ class Engine:
                     candidates.append(
                         re.sub(r"_(?:ph|fs)\.jpg$", suffix, real_url)
                     )
-                guess = self.thumb_to_image(thumb_url, suffix)
-                if guess and guess not in candidates:
-                    candidates.append(guess)
+                for guess in self.thumb_candidates(thumb_url, suffix):
+                    if guess not in candidates:
+                        candidates.append(guess)
 
             fs_definitively_absent = True
             for img_url in candidates:

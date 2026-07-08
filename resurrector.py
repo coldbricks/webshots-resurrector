@@ -340,6 +340,21 @@ async def cmd_pull(
         album.setdefault("dir", _album_dir_name(
             album["category"], album["id"], album["title"]))
 
+    # Merge with a previous manifest so partial pulls (--album, deep
+    # reruns) never drop earlier albums from the gallery.
+    manifest_path = os.path.join(output_dir, "manifest.json")
+    merged = {a["id"]: {k: v for k, v in a.items() if k != "ts"}
+              for a in album_infos}
+    if os.path.isfile(manifest_path):
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                for prev in json.load(f).get("albums", []):
+                    if prev.get("id"):
+                        merged.setdefault(prev["id"], prev)
+        except (OSError, ValueError):
+            pass
+    all_albums = list(merged.values())
+
     manifest = {
         "tool": "webshots-resurrector",
         "codename": "Paisley Ponytail",
@@ -349,16 +364,13 @@ async def cmd_pull(
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "interrupted": interrupted,
         "totals": stats.as_dict(),
-        "albums": [
-            {k: v for k, v in a.items() if k != "ts"} for a in album_infos
-        ],
+        "albums": all_albums,
     }
-    manifest_path = os.path.join(output_dir, "manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     gallery_path = write_gallery(
-        output_dir, username, album_infos, stats.as_dict()
+        output_dir, username, all_albums, stats.as_dict()
     )
 
     if interrupted:
