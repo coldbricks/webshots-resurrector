@@ -272,11 +272,15 @@ def show_albums_table(albums):
     console.print(table)
 
 
-def show_callsigns_table(rows, total_found):
+def show_callsigns_table(rows, total_found, remarks=None):
     """Display username-sweep results.
 
     rows: list of {name, pages, first, last} dicts, already ordered.
+    remarks: {name_lower: {rmk, ...}} — adds an RMK/ column when any
+    shown name carries one.
     """
+    remarks = remarks or {}
+    has_rmk = any(r["name"].lower() in remarks for r in rows)
     table = Table(
         show_header=True,
         header_style="strip",
@@ -291,14 +295,20 @@ def show_callsigns_table(rows, total_found):
     table.add_column("ARCHIVED PAGES", style="scope", justify="right", width=14)
     table.add_column("FIRST SEEN", style="dim", width=10)
     table.add_column("LAST SEEN", style="dim", width=10)
+    if has_rmk:
+        table.add_column("RMK/", style="amber", max_width=24)
 
     def _d(ts):
         return f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}" if len(ts) >= 8 else ts
 
     for i, r in enumerate(rows, 1):
-        table.add_row(
+        cells = [
             f"{i:03d}", r["name"][:32], str(r["pages"]), _d(r["first"]), _d(r["last"])
-        )
+        ]
+        if has_rmk:
+            entry = remarks.get(r["name"].lower())
+            cells.append((entry["rmk"] if entry else "")[:24])
+        table.add_row(*cells)
     console.print(table)
     if total_found > len(rows):
         console.print(
@@ -307,11 +317,13 @@ def show_callsigns_table(rows, total_found):
         )
 
 
-def show_contacts_table(rows, owner):
+def show_contacts_table(rows, owner, remarks=None):
     """Display associated-traffic (friends & fans) results.
 
     rows: list of {name, hits, lists} dicts, already ordered.
     """
+    remarks = remarks or {}
+    has_rmk = any(r["name"].lower() in remarks for r in rows)
     table = Table(
         show_header=True,
         header_style=f"bold black on {HF['blue']}",
@@ -325,11 +337,17 @@ def show_contacts_table(rows, owner):
     table.add_column("SCREEN NAME", style="bold white", max_width=32)
     table.add_column("SEEN ON", style="trace", max_width=16)
     table.add_column("HITS", style="scope", justify="right", width=5)
+    if has_rmk:
+        table.add_column("RMK/", style="amber", max_width=24)
 
     for i, r in enumerate(rows, 1):
-        table.add_row(
+        cells = [
             f"{i:03d}", r["name"][:32], ",".join(r["lists"])[:16], str(r["hits"])
-        )
+        ]
+        if has_rmk:
+            entry = remarks.get(r["name"].lower())
+            cells.append((entry["rmk"] if entry else "")[:24])
+        table.add_row(*cells)
     console.print(table)
 
 

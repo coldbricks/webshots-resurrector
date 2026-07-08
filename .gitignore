@@ -1,5 +1,6 @@
 cache/
 output*/
+remarks.json
 __pycache__/
 *.pyc
 .env

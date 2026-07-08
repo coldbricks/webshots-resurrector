@@ -67,6 +67,12 @@ intentions: type `3` to search strip 3, `p3` to pull it on the spot. Spaces
 are handled — `find cool dave` sweeps `cooldave`, `cool_dave`, and
 `cool-dave` — because Webshots names never had spaces but memories do.
 
+**FLIGHT PLAN REMARKS.** Screen names are callsigns; remarks are who they
+were. `remarks bexbee12 Becca from HS` files a note that shows up as an
+`RMK/` column on every board and at radar contact — or tag straight from
+the board with `r3 Becca from HS`. Remarks live in a local `remarks.json`
+next to where you run the tool. They never leave your machine.
+
 **The social graph survived, too.** Webshots profiles had friends & fans
 pages, and the crawl captured them. `friends yourscreenname` reads the
 archived people pages and boards everyone you knew as numbered strips —

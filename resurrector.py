@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from lib import __version__
 from lib.engine import Config, Engine, Stats
 from lib.gallery import write_gallery
+from lib.remarks import load_remarks, remark_for, save_remark
 from lib.ui import (
     console,
     detail,
@@ -91,6 +92,9 @@ async def recon(
         f"IDENT received — radar contact, [bold]{len(rows)}[/] beacons correlated"
         f"  ({first_fmt} .. {last_fmt})",
     )
+    rmk = remark_for(load_remarks(), username)
+    if rmk:
+        phase("RECON", f"[amber]RMK/[/] [target]{rmk}[/]")
     phase("RECON", f"Latest capture: [bold]{timestamps[-1]}[/]")
 
     return timestamps[-1], rows
@@ -245,7 +249,7 @@ async def cmd_find(
     shown = ranked[:top]
 
     console.print()
-    show_callsigns_table(shown, len(ranked))
+    show_callsigns_table(shown, len(ranked), remarks=load_remarks())
     console.print()
     success("SWEEP", f"[bold]{len(ranked)}[/] beacons correlated on frequency")
     if truncated:
@@ -274,13 +278,34 @@ async def say_intentions(
                 "[bold]#[/][dim]=search · [/]"
                 "[bold]p#[/][dim]=pull · [/]"
                 "[bold]f#[/][dim]=friends · [/]"
-                "[bold]name[/][dim]=new sweep · [/]"
+                "[bold]r# txt[/][dim]=remark · [/]"
+                "[bold]name[/][dim]=sweep · [/]"
                 "[dim]Enter=stand by ▸ [/]"
             ).strip()
         except (EOFError, KeyboardInterrupt):
             break
         if not raw:
             break
+        # r3 Becca from HS  → file a FLIGHT PLAN REMARK on strip 3
+        m_rmk = re.fullmatch(r"[rR]\s*(\d+)(?:\s+(.*))?", raw)
+        if m_rmk:
+            n = int(m_rmk.group(1))
+            if not (1 <= n <= len(shown)):
+                warn("SWEEP", f"Say again — that's not a strip number on the board (1-{len(shown)})")
+                continue
+            name = shown[n - 1]["name"]
+            text = (m_rmk.group(2) or "").strip()
+            if text:
+                save_remark(name, text)
+                success("SWEEP", f"RMK/ filed on [target]{name}[/]: [amber]{text}[/]")
+            else:
+                existing = remark_for(load_remarks(), name)
+                if existing:
+                    phase("SWEEP", f"[target]{name}[/] [amber]RMK/[/] {existing}")
+                else:
+                    phase("SWEEP", f"No remarks on file for [target]{name}[/] — "
+                          f"[dim]r{n} <text> to file one[/]")
+            continue
         m = re.fullmatch(r"([pPfF]?)\s*(\d+)", raw)
         if m:
             n = int(m.group(2))
@@ -303,6 +328,29 @@ async def say_intentions(
             console.print()
             await cmd_find(raw, engine, top=top, output_root=output_root)
             break
+
+
+def cmd_remarks(args_remark: list[str]) -> None:
+    """File, read, or list FLIGHT PLAN REMARKS from the command line."""
+    remarks = load_remarks()
+    if not args_remark:
+        if not remarks:
+            phase("RMK", "No remarks on file — [dim]remarks NAME your note here[/]")
+            return
+        phase("RMK", f"[bold]{len(remarks)}[/] flight plans annotated:")
+        for entry in sorted(remarks.values(), key=lambda e: e["name"].lower()):
+            detail(f"[target]{entry['name']}[/]  [amber]RMK/[/] {entry['rmk']}")
+        return
+    name, text = args_remark[0], " ".join(args_remark[1:]).strip()
+    if text:
+        save_remark(name, text)
+        success("RMK", f"RMK/ filed on [target]{name}[/]: [amber]{text}[/]")
+    else:
+        existing = remark_for(remarks, name)
+        if existing:
+            phase("RMK", f"[target]{name}[/]  [amber]RMK/[/] {existing}")
+        else:
+            phase("RMK", f"No remarks on file for [target]{name}[/]")
 
 
 async def cmd_friends(
@@ -328,7 +376,7 @@ async def cmd_friends(
 
     shown = contacts[:top]
     console.print()
-    show_contacts_table(shown, username)
+    show_contacts_table(shown, username, remarks=load_remarks())
     console.print()
     success(
         "TRACE",
@@ -527,6 +575,7 @@ async def cmd_pull(
         "codename": "Paisley Ponytail",
         "version": __version__,
         "user": username,
+        "remark": remark_for(load_remarks(), username),
         "wayback_timestamp": ts,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "interrupted": interrupted,
@@ -602,6 +651,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="show at most N contacts (default: 30)",
     )
 
+    p_remarks = sub.add_parser(
+        "remarks",
+        help="FLIGHT PLAN REMARKS — attach real names/notes to screen names (stays local)",
+    )
+    p_remarks.add_argument(
+        "remark", nargs="*",
+        help="NAME then your note ('remarks bexbee12 Becca from HS'); NAME alone reads it; nothing lists all",
+    )
+
     p_search = sub.add_parser("search", help="Search for a user, list albums and photo counts")
     p_search.add_argument("username", help="Webshots username to look up")
     p_search.add_argument("--deep", action="store_true", help=deep_help)
@@ -632,6 +690,10 @@ def main() -> None:
 
     if not args.command:
         parser.print_help()
+        return
+
+    if args.command == "remarks":
+        cmd_remarks(args.remark)
         return
 
     cfg = Config()
