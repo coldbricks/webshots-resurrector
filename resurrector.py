@@ -40,6 +40,7 @@ from lib.ui import (
     show_albums_table,
     show_banner,
     show_callsigns_table,
+    show_contacts_table,
     show_summary,
     success,
     warn,
@@ -250,7 +251,17 @@ async def cmd_find(
     if truncated:
         warn("SWEEP", "Index scan hit its cap — matches beyond it aren't listed; narrow the prefix")
 
-    # ── Say intentions ──────────────────────────────────────────────
+    await say_intentions(shown, engine, top, output_root)
+
+
+async def say_intentions(
+    shown: list[dict], engine: Engine, top: int, output_root: str
+) -> None:
+    """The interactive board: act on a strip, or retask the scope.
+
+    #=search strip · p#=pull strip · f#=friends of strip ·
+    any other text = new callsign sweep · Enter = stand by.
+    """
     if not sys.stdin.isatty():
         detail("[dim]Run [bold]search <name>[/bold] on a strip to see its albums.[/]")
         return
@@ -260,8 +271,9 @@ async def cmd_find(
         try:
             raw = console.input(
                 " [phase]SAY INTENTIONS[/] [dim]▸[/] "
-                "[bold]#[/][dim]=search strip · [/]"
-                "[bold]p#[/][dim]=pull strip · [/]"
+                "[bold]#[/][dim]=search · [/]"
+                "[bold]p#[/][dim]=pull · [/]"
+                "[bold]f#[/][dim]=friends · [/]"
                 "[bold]name[/][dim]=new sweep · [/]"
                 "[dim]Enter=stand by ▸ [/]"
             ).strip()
@@ -269,16 +281,20 @@ async def cmd_find(
             break
         if not raw:
             break
-        m = re.fullmatch(r"[pP]?\s*(\d+)", raw)
+        m = re.fullmatch(r"([pPfF]?)\s*(\d+)", raw)
         if m:
-            n = int(m.group(1))
+            n = int(m.group(2))
             if not (1 <= n <= len(shown)):
                 warn("SWEEP", f"Say again — that's not a strip number on the board (1-{len(shown)})")
                 continue
             name = shown[n - 1]["name"]
+            action = m.group(1).lower()
             console.print()
-            if raw.lower().startswith("p"):
+            if action == "p":
                 await cmd_pull(name, engine, output_root)
+                break
+            if action == "f":
+                await cmd_friends(name, engine, top=top, output_root=output_root)
                 break
             await cmd_search(name, engine)
         else:
@@ -287,6 +303,42 @@ async def cmd_find(
             console.print()
             await cmd_find(raw, engine, top=top, output_root=output_root)
             break
+
+
+async def cmd_friends(
+    username: str, engine: Engine, top: int = 30, output_root: str = "output"
+) -> None:
+    """List a user's archived friends & fans — their whole social graph."""
+    phase("TRACE", f"Pulling associated traffic for [target]{username}[/]")
+    with ident_status(f"{username}/people"):
+        result = await engine.list_contacts(username)
+    if result is None:
+        fail("TRACE", "ATC ZERO — archive.org radar is down; try again shortly")
+        return
+    contacts, pages_read = result
+    if not contacts:
+        fail(
+            "TRACE",
+            f"NO ASSOCIATED TRAFFIC ON FILE — no friends/fans pages archived for "
+            f"[target]{username}[/]",
+        )
+        detail("[dim]Their photos may still be fully recoverable —[/]")
+        detail(f"[dim]run [bold]search {username}[/bold]; only the social pages are missing.[/]")
+        return
+
+    shown = contacts[:top]
+    console.print()
+    show_contacts_table(shown, username)
+    console.print()
+    success(
+        "TRACE",
+        f"[bold]{len(contacts)}[/] associated tracks off {pages_read} archived pages"
+        f" — every name is one search away",
+    )
+    if len(contacts) > top:
+        detail(f"[dim]{len(contacts) - top} more not shown — raise -n to see them all[/]")
+
+    await say_intentions(shown, engine, top, output_root)
 
 
 # ── Commands ────────────────────────────────────────────────────────────
@@ -506,6 +558,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
+            "  python resurrector.py friends bexbee12       (everyone they knew in 2004)\n"
             "  python resurrector.py find   cooldave        (half-remembered? list matches)\n"
             "  python resurrector.py find   cool dave       (spaces handled: cooldave/cool_dave/cool-dave)\n"
             "  python resurrector.py search bexbee12\n"
@@ -537,6 +590,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_find.add_argument(
         "-n", "--top", type=int, default=30, metavar="N",
         help="show at most N matches (default: 30)",
+    )
+
+    p_friends = sub.add_parser(
+        "friends",
+        help="List a screen name's archived friends & fans — everyone they knew, one search away",
+    )
+    p_friends.add_argument("username", help="Webshots username whose people pages to read")
+    p_friends.add_argument(
+        "-n", "--top", type=int, default=30, metavar="N",
+        help="show at most N contacts (default: 30)",
     )
 
     p_search = sub.add_parser("search", help="Search for a user, list albums and photo counts")
@@ -580,6 +643,8 @@ def main() -> None:
             deep = getattr(args, "deep", False)
             if args.command == "find":
                 await cmd_find(" ".join(args.prefix), engine, top=max(1, args.top))
+            elif args.command == "friends":
+                await cmd_friends(args.username, engine, top=max(1, args.top))
             elif args.command == "search":
                 await cmd_search(args.username, engine, deep=deep)
             elif args.command == "pull":

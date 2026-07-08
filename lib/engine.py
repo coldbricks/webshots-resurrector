@@ -502,6 +502,65 @@ class Engine:
         ]
         return results, len(rows) >= cap
 
+    # ── Associated traffic (friends & fans) ─────────────────────────
+
+    async def list_contacts(
+        self, username: str, page_cap: int = 40
+    ) -> tuple[list[dict], int] | None:
+        """Extract the user's social graph from archived people pages.
+
+        Webshots profiles had /user/NAME/people pages (?list=friends,
+        ?list=fans, paginated ?start=N) and the crawl captured them —
+        every recovered account doubles as a directory of everyone its
+        owner knew.  Returns ([{name, hits, lists}, ...], pages_read)
+        or None on transport failure.
+        """
+        rows = await self.cdx_search(
+            f"community.webshots.com/user/{quote(username, safe='')}/people",
+            match_type="prefix",
+            collapse="urlkey",
+            status_filter="200",
+        )
+        if rows is None:
+            return None
+        pages = [(r[1], r[2]) for r in rows][:page_cap]
+
+        link_re = re.compile(
+            r"(?:https?://web\.archive\.org)?/web/\d+/"
+            rf"https?://community\.webshots\.com(?::80)?/user/([^/\"'?#]+)"
+        )
+        me = username.lower()
+        contacts: dict[str, dict] = {}
+        pages_read = 0
+        for ts, original in pages:
+            html = await self.load_page(original, ts)
+            if not html:
+                continue
+            pages_read += 1
+            list_kind = "fans" if "list=fans" in original else \
+                "friends" if "list=friends" in original else "people"
+            for raw_name in link_re.findall(html):
+                cased = re.sub(r"-date$", "", unquote(raw_name), flags=re.IGNORECASE)
+                cased = " ".join(cased.split()).strip(" .,")
+                if not cased or cased.lower() == me:
+                    continue
+                c = contacts.setdefault(
+                    cased.lower(), {"casings": {}, "hits": 0, "lists": set()}
+                )
+                c["casings"][cased] = c["casings"].get(cased, 0) + 1
+                c["hits"] += 1
+                c["lists"].add(list_kind)
+        results = [
+            {
+                "name": max(c["casings"], key=c["casings"].get),
+                "hits": c["hits"],
+                "lists": sorted(c["lists"]),
+            }
+            for c in contacts.values()
+        ]
+        results.sort(key=lambda r: (-r["hits"], r["name"].lower()))
+        return results, pages_read
+
     # ── Deep discovery (CDX prefix enumeration) ─────────────────────
 
     async def discover_profile_pages(

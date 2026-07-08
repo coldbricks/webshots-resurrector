@@ -74,6 +74,7 @@ THEME = Theme(
         "brand": f"bold {HF['white']}",
         "deep": f"bold {HF['magenta']}",
         "ident": f"bold {HF['aqua']}",
+        "trace": f"bold {HF['blue']}",
         # Sectional-chart backdrop: barely-there green, under the black.
         "chart": "#20362a",
         "chartlabel": "#2e4b36",
@@ -155,8 +156,9 @@ def _xmit(style: str, tag: str, msg: str):
 
 
 def phase(tag, msg):
-    # DEEP wears TRACON magenta (special condition); SWEEP wears beacon aqua.
-    style = {"DEEP": "deep", "SWEEP": "ident"}.get(tag, "phase")
+    # DEEP wears TRACON magenta (special condition); SWEEP wears beacon
+    # aqua; TRACE (social graph) wears datablock blue.
+    style = {"DEEP": "deep", "SWEEP": "ident", "TRACE": "trace"}.get(tag, "phase")
     _xmit(style, tag, msg)
 
 
@@ -303,6 +305,32 @@ def show_callsigns_table(rows, total_found):
             f"         [dim]{total_found - len(rows)} more matches not shown — "
             f"narrow the prefix or raise -n[/]"
         )
+
+
+def show_contacts_table(rows, owner):
+    """Display associated-traffic (friends & fans) results.
+
+    rows: list of {name, hits, lists} dicts, already ordered.
+    """
+    table = Table(
+        show_header=True,
+        header_style=f"bold black on {HF['blue']}",
+        padding=(0, 1),
+        border_style=f"dim {HF['blue']}",
+        box=box.HEAVY_HEAD,
+        title=f"[trace]▮▮ ASSOCIATED TRAFFIC — {owner.upper()}'S PEOPLE ▮▮[/]",
+        title_justify="left",
+    )
+    table.add_column("STRIP", style="dim", width=5, justify="right")
+    table.add_column("SCREEN NAME", style="bold white", max_width=32)
+    table.add_column("SEEN ON", style="trace", max_width=16)
+    table.add_column("HITS", style="scope", justify="right", width=5)
+
+    for i, r in enumerate(rows, 1):
+        table.add_row(
+            f"{i:03d}", r["name"][:32], ",".join(r["lists"])[:16], str(r["hits"])
+        )
+    console.print(table)
 
 
 # ── Debrief (final summary) ─────────────────────────────────────────────

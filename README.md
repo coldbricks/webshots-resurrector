@@ -31,9 +31,10 @@ exactly how Webshots ran things, which you probably now regret.
 ## Cleared for departure
 
 ```
-python resurrector.py find   cooldave           # half-remember the name? sweep for it
-python resurrector.py search yourscreenname     # what's on the scope?
-python resurrector.py pull   yourscreenname     # bring it home
+python resurrector.py find    cooldave          # half-remember the name? sweep for it
+python resurrector.py search  yourscreenname    # what's on the scope?
+python resurrector.py pull    yourscreenname    # bring it home
+python resurrector.py friends yourscreenname    # everyone you knew in 2004
 ```
 
 `search` gives you the flight-strip board — every archived album, with its
@@ -65,6 +66,13 @@ screen name, how many archived pages, first and last seen. Then just say
 intentions: type `3` to search strip 3, `p3` to pull it on the spot. Spaces
 are handled — `find cool dave` sweeps `cooldave`, `cool_dave`, and
 `cool-dave` — because Webshots names never had spaces but memories do.
+
+**The social graph survived, too.** Webshots profiles had friends & fans
+pages, and the crawl captured them. `friends yourscreenname` reads the
+archived people pages and boards everyone you knew as numbered strips —
+one test account surfaced **202 contacts** off 14 archived pages. From the
+board: `3` searches strip 3, `p3` pulls their photos, `f3` walks into
+*their* friends list. Recover your account, then go get everyone else's.
 
 `--deep` runs a CDX prefix sweep over every archived variant of your profile —
 pagination pages, the date-sorted view, every site redesign from 2002 to 2013 —
