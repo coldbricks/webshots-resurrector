@@ -20,10 +20,9 @@ The newest matching file wins (except the auto-generated `hf_bed.wav`).
 
 ## Default
 
-The app synthesizes `hf_bed.wav`: quiet server-room ambience — a
-continuous faint **400 Hz hum** (aircraft electrical power frequency)
-over a fan/HVAC noise floor, and one faint monitor beep roughly every
-15 seconds. No squelch breaks, nothing keys up.
+The app synthesizes `hf_bed.wav`, a quiet room tone. It's meant to sit
+at the edge of hearing, so it isn't described further here — turn it up
+if you want to know what's in it.
 
 Heads up: any `.wav` you put in this folder is used as a looping
 ambience bed. Don't park one-shot sounds here.
