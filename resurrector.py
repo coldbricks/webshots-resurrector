@@ -26,8 +26,6 @@ from datetime import datetime, timezone
 # Fail fast with a map, not a traceback -- the person running this may
 # never have installed a Python package in their life.
 try:
-    import aiohttp   # noqa: F401
-    import bs4       # noqa: F401
     import httpx     # noqa: F401
     import rich      # noqa: F401
 except ImportError as exc:
@@ -47,6 +45,8 @@ except ImportError as exc:
 from lib import __version__
 from lib.engine import Config, Engine, HangarFull, Stats
 from lib.gallery import write_gallery
+from lib.grade import count_variants, grade_from_albums
+from lib.relief import scan_hangar
 from lib.remarks import load_remarks, remark_for, save_remark
 from lib.ui import (
     console,
@@ -61,9 +61,13 @@ from lib.ui import (
     make_progress,
     phase,
     show_albums_table,
+    show_atis,
     show_banner,
     show_callsigns_table,
     show_contacts_table,
+    show_front_door,
+    show_relief_preview,
+    show_relief_review,
     show_summary,
     success,
     warn,
@@ -522,12 +526,81 @@ async def cmd_search(username: str, engine: Engine, deep: bool = False) -> None:
     success("SCAN", f"[bold]{total_photos}[/] photos across {len(albums_raw)} albums")
     if pages_failed:
         warn("SCAN", f"{pages_failed} album pages unreachable — pull may find more on retry")
+    # Hollow strips: albums boarded with zero photos
+    hollow = sum(1 for _u, _c, n, _t in album_data if n == 0)
+    if hollow:
+        warn(
+            "SCAN",
+            f"[bold]{hollow}[/] strip(s) ON BOARD — NO TARGETS "
+            f"(listed, but no photos extractable this pass)",
+        )
     console.print()
     detail(
         f"[ok]CLEARED FOR PULL[/] [dim]▸[/] "
         f"[bold]python resurrector.py pull {username}[/] "
         f"[dim]to recover all photos[/]"
     )
+    if sys.stdin.isatty():
+        await say_album_intentions(username, albums_raw, album_data, engine)
+
+
+async def say_album_intentions(
+    username: str,
+    albums_raw: list[tuple[str, str, str, str]],
+    album_data: list[tuple[str, str, int, str | None]],
+    engine: Engine,
+    output_root: str = "output",
+) -> None:
+    """After search: act on album strips like the callsign board."""
+    if not albums_raw:
+        return
+    while True:
+        console.print()
+        try:
+            raw = console.input(
+                " [phase]SAY INTENTIONS[/] [dim]▸[/] "
+                "[bold]p[/][dim]=pull all · [/]"
+                "[bold]p#[/][dim]=pull strip · [/]"
+                "[bold]d[/][dim]=deep rescan · [/]"
+                "[bold]r txt[/][dim]=remark · [/]"
+                "[dim]Enter=stand by ▸ [/]"
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not raw:
+            break
+        if raw.lower() == "p":
+            console.print()
+            await cmd_pull(username, engine, output_root)
+            break
+        if raw.lower() == "d":
+            console.print()
+            await cmd_search(username, engine, deep=True)
+            break
+        m_rmk = re.fullmatch(r"[rR]\s*(.*)", raw)
+        if m_rmk and not re.fullmatch(r"[rR]\s*\d+.*", raw):
+            text = (m_rmk.group(1) or "").strip()
+            if text:
+                save_remark(username, text)
+                success("RMK", f"RMK/ filed on [target]{username}[/]: [amber]{text}[/]")
+            else:
+                existing = remark_for(load_remarks(), username)
+                if existing:
+                    phase("RMK", f"[target]{username}[/] [amber]RMK/[/] {existing}")
+                else:
+                    phase("RMK", f"No remarks on file for [target]{username}[/]")
+            continue
+        m = re.fullmatch(r"[pP]\s*(\d+)", raw)
+        if m:
+            n = int(m.group(1))
+            if not (1 <= n <= len(albums_raw)):
+                warn("SCAN", f"Say again — strip 1-{len(albums_raw)}")
+                continue
+            album_id = albums_raw[n - 1][2]
+            console.print()
+            await cmd_pull(username, engine, output_root, only_albums=[album_id])
+            break
+        warn("SCAN", "Say again — p · p# · d · r <text> · Enter")
 
 
 async def cmd_pull(
@@ -537,15 +610,35 @@ async def cmd_pull(
     deep: bool = False,
     only_albums: list[str] | None = None,
     no_open: bool = False,
+    stats: Stats | None = None,
+    on_photo=None,
+    on_phase=None,
 ) -> None:
-    """Download all photos for a user."""
+    """Download all photos for a user.
+
+    stats: caller-owned Stats — a live UI can poll it mid-pull.
+    on_photo(record, album): fired after each photo lands/misses.
+    on_phase(name, **info): RECON / SCAN / PULL / DONE checkpoints.
+    Both callbacks are best-effort; they must never kill the pull.
+    """
+    def _phase_cb(name: str, **info):
+        if on_phase:
+            try:
+                on_phase(name, **info)
+            except Exception:
+                pass
+
+    _phase_cb("RECON")
     result = await recon(username, engine)
     if not result:
+        _phase_cb("DONE")
         return
     ts, rows = result
 
+    _phase_cb("SCAN")
     scan_result = await scan(username, ts, rows, engine, deep=deep)
     if not scan_result:
+        _phase_cb("DONE")
         return
     ts, albums_raw = scan_result
 
@@ -587,12 +680,22 @@ async def cmd_pull(
     total = sum(len(a["entries"]) for a in album_infos)
     console.print()
     success("SCAN", f"[bold]{total}[/] photos in manifest")
+    hollow = sum(1 for a in album_infos if not a["entries"])
+    if hollow:
+        warn(
+            "SCAN",
+            f"[bold]{hollow}[/] strip(s) ON BOARD — NO TARGETS",
+        )
     if not total:
         return
 
     # ── Download ────────────────────────────────────────────────────
     output_dir = os.path.join(output_root, username)
     os.makedirs(output_dir, exist_ok=True)
+
+    # Position relief — PREVIEW hangar before burning archive requests
+    sia_before = scan_hangar(output_dir)
+    show_relief_preview(username, sia_before)
 
     # Windows still enforces ~260-char paths in most configurations;
     # deep OneDrive-nested output roots render as 100% MISSED APCH.
@@ -604,8 +707,9 @@ async def cmd_pull(
             detail("[dim]Rerun with a shorter output root, e.g. [bold]-o C:\\webshots[/][/]")
             return
 
-    stats = Stats()
+    stats = stats or Stats()
     stats.pages_failed = pages_failed
+    _phase_cb("PULL", total=total, albums=len(album_infos))
     phase(
         "PULL",
         f"Extracting {total} photos  "
@@ -618,21 +722,34 @@ async def cmd_pull(
     with make_progress() as progress:
         task = progress.add_task(f"Pulling {username}", total=total)
 
+        # Strip index per album for datablock callouts (1-based board order)
+        strip_by_id = {
+            a["id"]: f"{i:02d}/{len(album_infos):02d}"
+            for i, a in enumerate(album_infos, 1)
+        }
+
         async def _dl(album: dict, thumb_ts: str, thumb_url: str, photo_page: str | None):
             nonlocal hangar_full
             dir_name = _album_dir_name(album["category"], album["id"], album["title"])
             album_dir = os.path.join(output_dir, dir_name)
             os.makedirs(album_dir, exist_ok=True)
             album["dir"] = dir_name
+            strip = strip_by_id.get(album["id"])
 
             if hangar_full:
                 # Disk is full: stop asking archive.org for bytes we
                 # cannot save.  These photos stay retryable.
                 stats.failed += 1
-                album["photos"].append({
+                full_rec = {
                     "id": engine.photo_id(thumb_url), "variant": "failed",
-                    "size": 0, "error": "disk full",
-                })
+                    "size": 0, "reason": "disk_full", "error": "disk full",
+                }
+                album["photos"].append(full_rec)
+                if on_photo:
+                    try:
+                        on_photo(full_rec, album)
+                    except Exception:
+                        pass
                 progress.advance(task)
                 return
 
@@ -644,26 +761,36 @@ async def cmd_pull(
                 hangar_full = True
                 stats.failed += 1
                 record = {"id": engine.photo_id(thumb_url), "variant": "failed",
-                          "size": 0, "error": "disk full"}
+                          "size": 0, "reason": "disk_full", "error": "disk full"}
             except Exception as exc:  # one bad photo must never kill the run
                 stats.failed += 1
                 record = {"id": engine.photo_id(thumb_url), "variant": "failed",
-                          "size": 0, "error": str(exc)[:200]}
+                          "size": 0, "reason": "transport", "error": str(exc)[:200]}
             album["photos"].append(record)
+            if on_photo:
+                try:
+                    on_photo(record, album)
+                except Exception:
+                    pass
 
             pid = record.get("id") or "unknown"
             variant = record.get("variant")
+            cap = record.get("title")
             if variant in ("fs", "ph"):
                 if variant == "fs" and record.get("upgraded"):
-                    dl_upgrade(record["size"], record.get("file", pid))
+                    dl_upgrade(record["size"], record.get("file", pid),
+                               caption=cap, strip=strip, pid=pid)
                 else:
-                    dl_ok(variant, record["size"], record.get("file", pid))
+                    dl_ok(variant, record["size"], record.get("file", pid),
+                          caption=cap, strip=strip, pid=pid)
             elif variant == "th":
-                dl_thumb(record["size"], record.get("file", pid))
+                dl_thumb(record["size"], record.get("file", pid),
+                         caption=cap, strip=strip, pid=pid)
             elif variant == "skip":
-                dl_skip(pid)
+                dl_skip(record.get("file", pid), caption=cap, strip=strip, pid=pid)
             else:
-                dl_fail(pid)
+                dl_fail(pid, caption=cap, strip=strip, pid=pid,
+                        reason=record.get("reason"))
             progress.advance(task)
 
         tasks = [
@@ -700,15 +827,22 @@ async def cmd_pull(
         merged[a["id"]] = _merge_album_records(current, merged.get(a["id"], {}))
     all_albums = list(merged.values())
 
+    grade_code, grade_blurb = grade_from_albums(all_albums)
+    variant_counts = count_variants(all_albums)
+    show_relief_review(sia_before, variant_counts)
+
+    user_rmk = remark_for(load_remarks(), username)
     manifest = {
         "tool": "webshots-resurrector",
         "codename": "Paisley Ponytail",
         "version": __version__,
         "user": username,
-        "remark": remark_for(load_remarks(), username),
+        "remark": user_rmk,
         "wayback_timestamp": ts,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "interrupted": interrupted,
+        "grade": grade_code,
+        "grade_detail": grade_blurb,
         "totals": stats.as_dict(),
         "albums": all_albums,
     }
@@ -718,7 +852,7 @@ async def cmd_pull(
     os.replace(tmp_manifest, manifest_path)
 
     gallery_path = write_gallery(
-        output_dir, username, all_albums, stats.as_dict()
+        output_dir, username, all_albums, stats.as_dict(), remark=user_rmk
     )
 
     if hangar_full:
@@ -727,9 +861,15 @@ async def cmd_pull(
         detail("[dim]-o pointing at a bigger drive) and run the same command again.[/]")
     if interrupted:
         warn("PULL", "Interrupted — progress saved; rerun the same command to resume")
-    show_summary(stats.as_dict(os.path.abspath(output_dir)))
+    show_summary(
+        stats.as_dict(os.path.abspath(output_dir)),
+        grade=grade_code,
+        grade_blurb=grade_blurb,
+    )
     console.print()
     success("PULL", f"Contact sheet: [bold]{os.path.abspath(gallery_path)}[/]")
+    _phase_cb("DONE", gallery=gallery_path, interrupted=interrupted,
+              hangar_full=hangar_full)
 
     # Flight recorder: what the user saw, for support reports.
     try:
@@ -760,18 +900,19 @@ async def wizard() -> None:
     """The front door: no arguments, no manual, one question.
 
     A double-click on Start_Here.bat lands here — the person on the
-    other end may never have used a terminal in their life.
+    other end may never have used a terminal in their life. Make the
+    glass look like a live scope; then make the next step idiot-proof.
     """
-    detail("[dim]Guided mode. I'll walk you through it. Ctrl+C (or Enter on an[/]")
-    detail("[dim]empty line) closes this window whenever you're done.[/]")
+    show_front_door()
     cfg = Config()
     async with Engine(cfg) as engine:
         while True:
             console.print()
             try:
                 name = console.input(
-                    " [phase]SAY CALLSIGN[/] [dim]▸ what was the Webshots screen "
-                    "name? (Enter=close) ▸ [/]"
+                    " [phase]SAY CALLSIGN[/] [dim]▸[/] "
+                    "[brand]what was the Webshots screen name?[/] "
+                    "[dim](Enter=close) ▸ [/]"
                 ).strip()
             except (EOFError, KeyboardInterrupt):
                 return
@@ -798,7 +939,7 @@ async def wizard() -> None:
             try:
                 ans = console.input(
                     " [phase]INTENTIONS[/] [dim]▸ Enter=recover everything now · "
-                    "s=just look first · n=different name ▸ [/]"
+                    "s=just look first · d=deep (old eras) · n=different name ▸ [/]"
                 ).strip().lower()
             except (EOFError, KeyboardInterrupt):
                 return
@@ -807,6 +948,9 @@ async def wizard() -> None:
                 continue
             if ans == "s":
                 await cmd_search(name, engine)
+            elif ans == "d":
+                detail("[dim]Long-range Center scan — slower, finds older eras.[/]")
+                await cmd_pull(name, engine, deep=True)
             else:
                 await cmd_pull(name, engine)
 
@@ -821,18 +965,22 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  python resurrector.py friends bexbee12       (everyone they knew in 2004)\n"
-            "  python resurrector.py find   cooldave        (half-remembered? list matches)\n"
-            "  python resurrector.py find   cool dave       (spaces handled: cooldave/cool_dave/cool-dave)\n"
+            "  python resurrector.py                    (STARS/ERAM-style scope window)\n"
+            "  python resurrector.py --cli              (terminal wizard)\n"
+            "  python resurrector.py scope              (force scope GUI)\n"
+            "  python resurrector.py friends bexbee12\n"
+            "  python resurrector.py find   cooldave\n"
             "  python resurrector.py search bexbee12\n"
-            "  python resurrector.py search bexbee12 --deep\n"
             "  python resurrector.py pull   bexbee12 -j 6\n"
-            "  python resurrector.py pull   bexbee12 --album 330301954fOVqeb\n"
         ),
     )
     parser.add_argument(
         "--version", action="version",
         version=f"Paisley Ponytail v{__version__} (the Webshots Resurrector)",
+    )
+    parser.add_argument(
+        "--cli", action="store_true",
+        help="terminal wizard instead of the STARS/ERAM scope window",
     )
 
     deep_help = (
@@ -841,6 +989,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser(
+        "scope",
+        help="Open the STARS/ERAM-style scope window (default when you double-click)",
+    )
 
     p_find = sub.add_parser(
         "find",
@@ -904,16 +1057,32 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    show_banner()
+    # Default double-click → STARS/ERAM scope GUI. --cli keeps the tower cab terminal.
+    want_scope = (
+        args.command == "scope"
+        or (not args.command and not getattr(args, "cli", False))
+    )
+    if want_scope and not getattr(args, "cli", False):
+        try:
+            from lib.scope_gui import main as scope_main
+            scope_main()
+            return
+        except Exception as exc:
+            # Headless / no display — fall through to terminal.
+            print(f" Scope window unavailable ({exc}); falling back to terminal cab.")
 
-    if not args.command:
+    cold = not args.command and sys.stdin.isatty()
+    show_banner(cold_start=cold)
+    show_atis()
+
+    if not args.command or args.command == "scope":
         if sys.stdin.isatty():
             try:
                 asyncio.run(wizard())
             except KeyboardInterrupt:
                 pass
             try:
-                input("\n Press Enter to close...")
+                input("\n Press Enter to close the cab... ")
             except (EOFError, KeyboardInterrupt):
                 pass
         else:

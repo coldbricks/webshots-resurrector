@@ -1,0 +1,88 @@
+{
+  "id": "N90",
+  "name": "New York TRACON theater",
+  "version": 1,
+  "not_for_navigation": true,
+  "provenance": "Hand-authored public geography for PPTY scope glass. Not vice/GPL.",
+  "bbox": {
+    "lat_min": 40.35,
+    "lat_max": 41.20,
+    "lon_min": -74.40,
+    "lon_max": -71.85
+  },
+  "center": { "lat": 40.64, "lon": -73.78 },
+  "range_rings_nm": [20, 40, 60],
+  "labels": [
+    { "lat": 41.05, "lon": -73.55, "text": "~ ~  LONG ISLAND SOUND  ~ ~", "role": "water", "size": 11 },
+    { "lat": 40.72, "lon": -72.55, "text": "LONG ISLAND", "role": "land", "size": 10 },
+    { "lat": 40.42, "lon": -73.10, "text": "~ ~ ~  A T L A N T I C  ~ ~ ~", "role": "water", "size": 11 },
+    { "lat": 40.38, "lon": -73.10, "text": "W-105 / W-106 COLD  ·  SAA INACTIVE  ·  GUEST ON FREQUENCY", "role": "footer", "size": 9 },
+    { "lat": 40.55, "lon": -72.15, "text": "Y483 → OCA", "role": "route", "size": 11 }
+  ],
+  "airports": [
+    { "id": "KJFK", "lat": 40.6398, "lon": -73.7789, "label": "● JFK", "primary": true, "size": 13 },
+    { "id": "KLGA", "lat": 40.7769, "lon": -73.8740, "label": "● LGA", "size": 12 },
+    { "id": "KEWR", "lat": 40.6895, "lon": -74.1745, "label": "● EWR", "size": 11 },
+    { "id": "KTEB", "lat": 40.8501, "lon": -74.0608, "label": "● TEB", "size": 10 },
+    { "id": "KHPN", "lat": 41.0670, "lon": -73.7076, "label": "● HPN", "size": 10 },
+    { "id": "KISP", "lat": 40.7952, "lon": -73.1002, "label": "● ISP", "size": 10 },
+    { "id": "KFRG", "lat": 40.7288, "lon": -73.4134, "label": "● FRG", "size": 10 },
+    { "id": "KBDR", "lat": 41.1635, "lon": -73.1262, "label": "BDR", "size": 9 }
+  ],
+  "fixes": [
+    { "id": "DPK", "lat": 40.7917, "lon": -73.3033, "label": "DPK", "size": 10 },
+    { "id": "CCC", "lat": 40.9294, "lon": -72.7986, "label": "CCC", "size": 10 },
+    { "id": "HTO", "lat": 40.9596, "lon": -72.2517, "label": "HTO", "size": 10 },
+    { "id": "CAMRN", "lat": 40.3167, "lon": -73.8500, "label": "CAMRN", "role": "gate", "size": 9 },
+    { "id": "SHIPP", "lat": 40.4500, "lon": -73.2500, "label": "SHIPP", "role": "gate", "size": 9 },
+    { "id": "BETTE", "lat": 40.5000, "lon": -72.6000, "label": "BETTE", "role": "gate", "size": 9 },
+    { "id": "HAPIE", "lat": 40.4167, "lon": -72.1167, "label": "HAPIE", "role": "gate", "size": 9 },
+    { "id": "LENDY", "lat": 41.1167, "lon": -74.0500, "label": "LENDY", "role": "gate", "size": 9 },
+    { "id": "GREKI", "lat": 41.1667, "lon": -73.3500, "label": "GREKI", "role": "gate", "size": 9 }
+  ],
+  "coast": [
+    [-74.25, 40.48],
+    [-74.05, 40.52],
+    [-73.95, 40.55],
+    [-73.85, 40.58],
+    [-73.78, 40.58],
+    [-73.70, 40.59],
+    [-73.55, 40.60],
+    [-73.40, 40.62],
+    [-73.25, 40.64],
+    [-73.10, 40.66],
+    [-72.95, 40.68],
+    [-72.75, 40.70],
+    [-72.55, 40.72],
+    [-72.35, 40.75],
+    [-72.15, 40.78],
+    [-71.95, 40.85]
+  ],
+  "nj_coast": [
+    [-74.35, 40.55],
+    [-74.28, 40.48],
+    [-74.20, 40.42],
+    [-74.10, 40.38],
+    [-74.00, 40.36]
+  ],
+  "warning_areas": [
+    {
+      "id": "W-105A",
+      "label": "W-105A",
+      "status": "COLD",
+      "bbox": { "lat_min": 40.36, "lat_max": 40.52, "lon_min": -74.05, "lon_max": -73.55 }
+    },
+    {
+      "id": "W-105B",
+      "label": "W-105B",
+      "status": "COLD",
+      "bbox": { "lat_min": 40.36, "lat_max": 40.52, "lon_min": -73.55, "lon_max": -73.05 }
+    },
+    {
+      "id": "W-106",
+      "label": "W-106",
+      "status": "COLD",
+      "bbox": { "lat_min": 40.36, "lat_max": 40.52, "lon_min": -73.05, "lon_max": -72.55 }
+    }
+  ]
+}

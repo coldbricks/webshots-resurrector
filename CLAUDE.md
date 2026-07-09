@@ -27,16 +27,31 @@
 | **Brand** | Tailstrike Studios × Ash Airfoil // coldbricks; WWII nose-art mascot (assets/nose_art.jpg); tower-cab terminal UI (Zulu clock, flight strips, LANDED/MISSED APCH callouts) |
 | **Audience** | People recovering lost Webshots accounts, mostly non-technical, mostly on Windows — first-run UX matters |
 
-## File Map (real, v1.2.0)
+## File Map (real, v2.0.0)
 
 | Path | Purpose |
 |---|---|
-| `resurrector.py` | CLI: recon/scan/deep phases, search + pull commands, manifest v2 |
-| `lib/engine.py` | Async engine: rate-limited transport, CDX API, extraction regexes, photo-page resolution, download chain |
-| `lib/ui.py` | rich display layer (ATC aesthetic); forces UTF-8 stdout on Windows |
-| `lib/gallery.py` | Self-contained gallery.html contact sheet written after every pull |
+| `resurrector.py` | CLI: recon/scan/deep, search + pull (stats/on_photo/on_phase hooks), SAY INTENTIONS, relief wire |
+| `lib/engine.py` | Async engine: rate-limited transport, CDX API, extraction, download chain, fail reasons, per-photo `ts`, `cooldown_remaining` |
+| `lib/truth.py` | Truth-state copy matrix — authored controller line + plain English + one action per kind of miss. Used by the scope GUI; the CLI still has its own v1.6.x copy of the same states (keep wording aligned; wiring CLI through this matrix is pending) |
+| `lib/ui.py` | rich tower-cab UI (ATIS, relief, datablocks, HF palette); UTF-8 on Windows |
+| `lib/gallery.py` | Scope-grade offline gallery.html (strip bay, CAT grade, per-photo provenance, empty-strip honesty, print CSS) |
+| `lib/grade.py` | Wreckage CAT grade (pure) |
+| `lib/relief.py` | Hangar SIA scan for position relief |
+| `lib/scope_gui.py` | Scope glass. **TRAINING mode (default): simple wizard.** **PROFESSIONAL mode: the entire cascade** (CEDAR gate, relief brief, VSCS/ZWY/channels SIM panels, live ADS-B). Mission instruments wired to real engine events in both |
+| `lib/nas_brief.py` | Live METAR + NAS/OIS for the Professional relief brief |
+| `lib/adsb_feed.py` | Live ADS-B (adsb.lol / OpenSky) — Professional, toggleable |
+| `lib/prefs.py` | `.ppty_prefs.json` — mode choice; git-ignored |
+| `lib/remarks.py` | Local RMK/ store |
+| `tests/test_extract.py` | Offline era-grammar fixtures — **no live archive.org in tests** |
+| `ARCHITECTURE.md` | One-pager: engine sovereign, cab optional |
+| `assets/door_chime.wav` | Sector-open transit door chime (MTA/LIRR-style ding-dong) |
+| `assets/artcc_ringer.wav` | Same chime (legacy path; rewritten to door tone) |
+| `lib/theme.py` | Scope palette, type scale `F()`, layout metrics, chime synth |
 | `lib/__init__.py` | `__version__` — single source of truth |
-| `assets/nose_art.jpg` | The pony. README hero + social preview art |
+| `LICENSE` | MIT |
+| `Start_Here.bat` | Double-click → scope glass (Training mode first run) |
+| `assets/nose_art.jpg` | The pony |
 
 ## Architecture — the recovery pipeline
 
@@ -97,5 +112,6 @@ Album titles: attribute-less <h1>; <title> is a generic slogan.
 ## Working notes
 
 - Windows first: UTF-8 stdout forced in `lib/ui.py` before rich binds (cp1252 crashed v1.0). Docs say `python`, not `python3`.
-- Test extraction offline against saved album HTML before hitting archive.org (keep a saved album page around as a local fixture, e.g. `album_test.html`).
+- Extraction has an offline regression suite: `python tests/test_extract.py` (era-grammar fixtures, zero network). Run it before and after touching any regex in `lib/engine.py`; then live-verify once with `search bexbee12`.
+- GUI modes: TRAINING is the default and must stay civilian-safe (no gate ritual, no SIM panels, plain English). PROFESSIONAL owns the entire cascade. Mode toggle top-right, persisted in `.ppty_prefs.json`. Never let a SIM event (channel blips, VSCS theater) fire while a real pull is running.
 - Known gaps: CDX enumeration of ?start pages (vs HTML-link following) not implemented; old-era photo detail pages are sparsely archived, so old-era captions are rare and recovery there leans on the sym/imageN derivation + thumbnail fallback.

@@ -184,13 +184,16 @@ class Engine:
         # Why the last request gave up. A caller that only sees `None`
         # cannot tell "archive.org is down" (ATC ZERO) from "archive.org
         # is up and metering us" (429 flow control) -- opposite advice.
-        # last_status: 429 = throttled, 5xx = server sick, 0 = transport.
+        # last_status: None = no exchange has completed yet (a fresh
+        #              engine must read as clear skies, NOT as an outage),
+        #              200/404 = archive answering, 429 = throttled,
+        #              5xx = server sick, 0 = transport failure.
         # last_nid:    archive.org's X-NID header names the NETWORK it
         #              sees us on ("Datacamp Limited" = a VPN/datacenter
         #              exit, which their edge throttles far harder than a
         #              residential ISP). Naming it turns an unactionable
         #              "try later" into "drop the VPN".
-        self.last_status: int = 0
+        self.last_status: int | None = None
         self.last_nid: str | None = None
         self.last_retry_after: str | None = None
 
@@ -240,8 +243,10 @@ class Engine:
             try:
                 r = await self._client.get(url)
                 if r.status_code == 200:
+                    self.last_status = 200  # archive answering — clears weather
                     return r, 200
                 if r.status_code in ABSENT_STATUSES:
+                    self.last_status = r.status_code  # a real 404 is clear skies
                     return None, r.status_code
                 last_status = r.status_code
                 if r.status_code in RETRY_STATUSES:
@@ -266,6 +271,13 @@ class Engine:
         self.last_status = status
         if status != 429:      # a stale NID would mislabel a real outage
             self.last_nid = None
+
+    @property
+    def cooldown_remaining(self) -> float:
+        """Seconds until the shared limiter clears. The normal request gap
+        is under a second; anything beyond ~5s means archive.org called
+        flow control and every coroutine is holding short."""
+        return max(0.0, self._limiter._next_ok - time.monotonic())
 
     async def _fetch_text(self, url: str) -> str | None:
         r, _ = await self._get(url)
@@ -759,9 +771,11 @@ class Engine:
             pid = self.photo_id(thumb_url)
             if not pid:
                 stats.failed += 1
-                return {"id": None, "variant": "failed", "size": 0}
+                return {"id": None, "variant": "failed", "size": 0, "reason": "no_pid"}
 
-            record: dict = {"id": pid, "variant": "failed", "size": 0, "title": None}
+            record: dict = {
+                "id": pid, "variant": "failed", "size": 0, "title": None, "reason": None,
+            }
             fs_path = os.path.join(output_dir, f"{pid}_fs.jpg")
             ph_path = os.path.join(output_dir, f"{pid}_ph.jpg")
             fs404_marker = os.path.join(output_dir, f"{pid}.fs404")
@@ -795,6 +809,8 @@ class Engine:
                     photo_page_url, thumb_ts
                 )
                 record["title"] = title
+            else:
+                record["reason"] = "no_photo_page"
 
             candidates: list[str] = []
             for suffix in ("_fs.jpg", "_ph.jpg"):
@@ -807,6 +823,8 @@ class Engine:
                         candidates.append(guess)
 
             fs_definitively_absent = True
+            saw_transport = False
+            saw_not_jpeg = False
             for img_url in candidates:
                 is_fs = img_url.endswith("_fs.jpg")
                 if had_ph and not is_fs:
@@ -826,10 +844,20 @@ class Engine:
                     record.update(
                         variant="fs" if is_fs else "ph",
                         size=len(data), file=os.path.basename(path),
+                        reason=None, ts=thumb_ts,
+                        source="photo_page" if real_url else "derived",
                     )
                     return record
-                if is_fs and not absent:
-                    fs_definitively_absent = False
+                if not absent:
+                    # Transport failure (5xx/network) on ANY candidate is
+                    # retryable — reason must never read as "never archived".
+                    saw_transport = True
+                    if is_fs:
+                        fs_definitively_absent = False
+                else:
+                    # absent True from _try_image means 404 OR not a JPEG
+                    # (archived error page). Distinguish best-effort later.
+                    saw_not_jpeg = True
 
             # Every _fs candidate 404'd for real: stop future upgrade runs.
             if fs_definitively_absent and (had_ph or candidates):
@@ -841,7 +869,7 @@ class Engine:
             if had_ph:
                 stats.skipped += 1  # keep the _ph we already have
                 record.update(variant="skip", size=os.path.getsize(ph_path),
-                              file=os.path.basename(ph_path))
+                              file=os.path.basename(ph_path), reason=None)
                 return record
 
             # ── Last resort: save the archived thumbnail itself ─────
@@ -852,8 +880,17 @@ class Engine:
                 stats.thumbs_only += 1
                 stats.bytes += len(data)
                 record.update(variant="th", size=len(data),
-                              file=os.path.basename(th_path))
+                              file=os.path.basename(th_path),
+                              reason=None, ts=thumb_ts, source="thumb")
                 return record
 
             stats.failed += 1
+            if saw_transport:
+                record["reason"] = "transport"
+            elif not candidates:
+                record["reason"] = record.get("reason") or "no_photo_page"
+            elif saw_not_jpeg:
+                record["reason"] = "absent"
+            else:
+                record["reason"] = "absent"
             return record

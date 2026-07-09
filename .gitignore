@@ -9,3 +9,12 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# Optional large ElevenLabs / custom radio packs (keep README + tiny default bed)
+assets/radio/*
+!assets/radio/README.md
+!assets/radio/hf_bed.wav
+# Internal planning docs — never ship in the public repo
+FOR_CLAUDE.md
+gForItFable.md
+# Local user preferences (Training/Professional mode, etc.)
+.ppty_prefs.json

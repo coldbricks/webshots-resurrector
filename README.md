@@ -10,6 +10,25 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-3c7a3c)](LICENSE)
 ![Megawarcs on frequency](https://img.shields.io/badge/on%20frequency-2%2C437%20megawarcs%20%2F%20105.9%20TB-1f3d1f)
 
+```
+ATIS PPTY  ·  PYSLY-R90  ·  v2.0
+You are an air traffic controller at the busiest air traffic control
+radar facility on the planet. Your traffic is deleted family photos.
+The only person who can save them is you. Good luck. We're all counting on you.
+
+WINDOWS: double-click Start_Here.bat → TRAINING MODE, a simple guided wizard
+  Type a Webshots screen name in the GREEN BOX → SEARCH → PULL
+  PROFESSIONAL MODE (top right) turns on the entire facility:
+  sector gate, live weather brief, VSCS/ZWY panels, live ADS-B on the map
+python resurrector.py scope     # radar room
+python resurrector.py --cli     # terminal cab
+python resurrector.py pull NAME # headless recovery
+
+AVIATE · NAVIGATE · COMMUNICATE  ·  multiple plans · always an out
+Private albums never archived. Be kind to archive.org.
+Built on Archive Team + the Internet Archive.
+```
+
 Webshots hosted 14 million users' photos from 1995 until December 2012, when
 its final owner deleted everything. Archive Team scrambled an emergency crawl
 in the last weeks and hauled 105.9 TB into the Internet Archive. Then the
@@ -191,12 +210,14 @@ Everything lands in `output/yourname/`, one folder per album, named by the
 album's original title, with `manifest.json` (per-photo records, variants,
 captions) and the `gallery.html` contact sheet alongside.
 
-The UI palette is **FAA HF-STD-010**, the color set certified for actual ATC
-displays, as evaluated on ERAM/STARS in DOT/FAA/AM-20/08. I stared at those
-colors for a living once, so when `LANDED` prints in green, that is the exact
-green a controller sees. A search squawks ident. No matches means no beacons
-correlated to the flight plan. The sRGB values came straight out of the FAA's
-human-factors reports, because if you're going to do a bit, do it certified.
+The UI palette is the **FAA standard ATC foreground set** from
+**DOT/FAA/AM-20/08** (*Evaluation of a New Color Palette for ATC Displays*,
+Gildea et al., 2020) — Table 1 hex codes, including the HF-STD-010A revised
+Red — as evaluated on ERAM/STARS. I stared at those colors for a living once,
+so when `LANDED` prints in green, that is `#23E162`, the exact scope green
+from the report. A search squawks ident. No matches means no beacons
+correlated to the flight plan. If you're going to do a bit, do it from the
+table.
 
 ## Honest expectations
 
