@@ -1,8 +1,9 @@
 # CLAUDE.md — Paisley Ponytail (the Webshots Resurrector)
 
 > 105.9 TB of deleted Webshots photos live inside 2,437 megawarc blobs
-> on archive.org. The raw blobs are 401-walled, the old index is dark —
-> but everything was ingested into the Wayback Machine. We are the key.
+> on archive.org. The raw blobs are 401-walled and the old index is dark,
+> but everything was ingested into the Wayback Machine. This tool goes in
+> through the Wayback door.
 
 ---
 
@@ -21,10 +22,10 @@
 | Field | Value |
 |---|---|
 | **Product name** | Paisley Ponytail (subtitle: the Webshots Resurrector) |
-| **Repo** | `C:\Users\coldb\webshots-resurrector` → github.com/coldbricks/paisley-ponytail (PUBLIC; renamed from webshots-resurrector, old URL redirects) |
+| **Repo** | github.com/coldbricks/paisley-ponytail (PUBLIC; renamed from webshots-resurrector, old URL redirects) |
 | **Stack** | Python 3.10+ (developed on 3.14/Windows 11), httpx + rich; requirements.txt |
 | **Brand** | Tailstrike Studios × Ash Airfoil // coldbricks; WWII nose-art mascot (assets/nose_art.jpg); tower-cab terminal UI (Zulu clock, flight strips, LANDED/MISSED APCH callouts) |
-| **Distribution** | Shared on Reddit threads for people seeking lost accounts — first-run UX on Windows matters |
+| **Audience** | People recovering lost Webshots accounts, mostly non-technical, mostly on Windows — first-run UX matters |
 
 ## File Map (real, v1.2.0)
 
@@ -90,11 +91,11 @@ Album titles: attribute-less <h1>; <title> is a generic slogan.
 ## Validation ledger
 
 - **bexbee12** is the canonical test user. v1.0 found 538 photos; v1.1 pagination found 667; `--deep` adds +52 old-era albums (0 photos each until old-era extraction is proven — watch this).
-- 2026-07-08 ultracode audit: 55 agents, 22 confirmed findings, 0 refuted. Highlights: image-server derivation empirically false (near-100% pull failure), `limit=-1` truncation, old-era thumb hosts `.com`, path-segment pagination, CDX error/empty conflation. All addressed in v1.2.
+- 2026-07-08 audit: an aggressive testing pass against the live archive turned up 22 confirmed bugs. Highlights: image-server derivation empirically false (near-100% pull failure), `limit=-1` truncation, old-era thumb hosts `.com`, path-segment pagination, CDX error/empty conflation. All fixed in v1.2.
 - Reproduce era evidence: thumb13→image12 (photo 149910057gOoGRH), thumb13→image04 (113686093oWWsjM), /t/ thumb13→image20 (331307972aadgQz).
 
 ## Working notes
 
 - Windows first: UTF-8 stdout forced in `lib/ui.py` before rich binds (cp1252 crashed v1.0). Docs say `python`, not `python3`.
-- Test extraction offline against saved album HTML before hitting archive.org (scratchpad keeps `album_test.html`).
+- Test extraction offline against saved album HTML before hitting archive.org (keep a saved album page around as a local fixture, e.g. `album_test.html`).
 - Known gaps: CDX enumeration of ?start pages (vs HTML-link following) not implemented; old-era photo detail pages are sparsely archived, so old-era captions are rare and recovery there leans on the sym/imageN derivation + thumbnail fallback.

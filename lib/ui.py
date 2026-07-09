@@ -81,7 +81,7 @@ THEME = Theme(
     }
 )
 
-# record=True feeds the flight recorder — pulls save a session log so
+# record=True feeds the flight recorder. Pulls save a session log so
 # support reports arrive with the full transcript attached.
 console = Console(theme=THEME, highlight=False, record=True)
 
@@ -89,7 +89,7 @@ VERSION = __version__
 
 
 def _zulu() -> str:
-    """Tower clock — every transmission gets a Zulu timestamp."""
+    """Tower clock: every transmission gets a Zulu timestamp."""
     return datetime.now(timezone.utc).strftime("%H:%M:%SZ")
 
 
@@ -278,7 +278,7 @@ def show_callsigns_table(rows, total_found, remarks=None):
     """Display username-sweep results.
 
     rows: list of {name, pages, first, last} dicts, already ordered.
-    remarks: {name_lower: {rmk, ...}} — adds an RMK/ column when any
+    remarks: {name_lower: {rmk, ...}}; adds an RMK/ column when any
     shown name carries one.
     """
     remarks = remarks or {}

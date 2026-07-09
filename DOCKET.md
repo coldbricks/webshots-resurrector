@@ -10,6 +10,13 @@
 > biggest reverse engineering project in internet photo history has been
 > achieved. Now, I just need everyone to break it again.*
 
+Before the report, a word on the format. Yes, it's written like an NTSB
+docket. I spent my working life around air traffic control, accident reports
+are my native format for writing up a wreck, and this was a wreck. I was
+also on board: my photos went down with everyone else's, which is why the
+investigator-in-charge is listed as a complainant too. Everything below is
+checkable against the live archive, photo IDs included.
+
 ---
 
 ## 1. Factual Information
@@ -17,12 +24,13 @@
 ### 1.1 History of Flight
 
 Webshots entered service in 1995 as a consumer photo-sharing site and flew for
-seventeen years — through the dial-up era, the digicam boom, and the arrival of
-Facebook — peaking around **14 million monthly users**. For an enormous number
-of ordinary families in the early 2000s, Webshots wasn't *a* copy of their
-photos. It was *the* copy. The camera's memory card got erased for the next
-birthday party; the prints never got made; the hard drive died in 2006. The
-album lived on Webshots, and that was fine, because websites were forever.
+seventeen years, through the dial-up era, the digicam boom, and the arrival of
+Facebook, peaking around **14 million monthly users**. For an enormous number
+of ordinary families in the early 2000s, Webshots held the only copy of their
+photos that existed anywhere. The memory card got erased to make room for the
+next birthday party, the prints never got made, and the family hard drive died
+in 2006 anyway. The album lived on Webshots, and that was fine, because
+websites were forever.
 
 The aircraft changed hands repeatedly in its final years. The last owner,
 Threefold Photos, announced a pivot in late 2012: the service would relaunch
@@ -33,14 +41,13 @@ million users were deleted.
 ### 1.2 Injuries to Persons
 
 No physical injuries. Approximately 14 million photo libraries lost, an
-unknown but large fraction of them the only surviving copy of the images they
-contained: kids, weddings, deployments, dorm rooms, dogs, grandparents,
-parties, cars, and every haircut of 1999–2012.
+unknown but large fraction of them the only surviving copy of the images
+they contained.
 
 ### 1.3 The Rescue Flight
 
-In the final weeks before shutdown, **Archive Team** — the loose volunteer
-collective that shows up when websites announce their own funerals — ran an
+In the final weeks before shutdown, **Archive Team**, the loose volunteer
+collective that shows up when websites announce their own funerals, ran an
 emergency distributed crawl using their "Warrior" clients. Thousands of
 volunteers' machines walked `community.webshots.com` profile by profile,
 album by album, photo by photo, and shipped what they captured to the
@@ -52,8 +59,7 @@ each accompanied by a CDX index mapping every captured URL to a byte offset.
 
 ### 1.4 The Second Accident
 
-Rescuing the data and being able to *use* it turned out to be different
-problems:
+Rescue turned out to be only step one:
 
 | Year | Event |
 |---|---|
@@ -65,27 +71,26 @@ problems:
 Result: 105.9 TB of family photos, rescued at great effort, locked in blobs
 nobody could open, indexed by a search page nobody could reach. For nearly a
 decade the practical recovery method was **manual Wayback Machine spelunking,
-one page at a time** — the operator of this investigation spent 9+ years
-doing exactly that for a single account.
+one page at a time**. I spent 9+ years doing exactly that for my own account.
 
 ### 1.5 The Aircraft: Consumer Photography, 1999–2005
 
 To understand the wreckage, understand what people were flying.
 
 The digicams of the Webshots era shot **1.3 to 4 megapixels**. A 1.3 MP
-camera produces a **1280×960** frame — which is why that exact resolution
-appears throughout this investigation as "full size." It isn't a website's
-downscale; for millions of photos it is *every pixel the camera captured*.
+camera produces a **1280×960** frame. That is why the exact same resolution
+appears throughout this investigation as "full size": for millions of photos
+it is every pixel the camera ever captured, not a website's downscale.
 Memory cards were 16–128 MB and expensive, so people shot at reduced quality
 on purpose to fit the vacation on one card.
 
 Display and network constraints shaped the rest of the site's file grammar.
-Monitors were 15–17" CRTs running SVGA (800×600) or 1024×768 — so the photo
+Monitors were 15–17" CRTs running SVGA (800×600) or 1024×768, so the photo
 you actually *viewed* on a Webshots page was the **800×600** rendition, sized
-for the glass. Upload ran through 56k modems at roughly 4 KB/s upstream — a
+for the glass. Upload was worse: 56k modems, roughly 4 KB/s upstream. A
 single full-size photo took a minute or more to send. And a grid page of 42
-thumbnails at ~1 KB each existed because that was what a dial-up connection
-could paint before the user gave up.
+thumbnails at ~1 KB each existed because that was what dial-up could paint
+before you gave up.
 
 This is why every Webshots photo exists in exactly three renditions, and why
 recovery quality is graded the way it is:
@@ -104,10 +109,10 @@ recovery quality is graded the way it is:
 
 With the raw megawarcs 401-walled and the index dark, the investigation
 established that everything Archive Team captured was **ingested into the
-Wayback Machine** — which means the *playback* system and its **CDX API**
-(the Wayback Machine's URL-to-capture index) constitute a complete, public,
-navigable copy of the freeze-frame data. The blobs are locked; the door was
-never the blobs.
+Wayback Machine**. That means the *playback* system and its **CDX API**
+(the Wayback Machine's URL-to-capture index) constitute a complete, publicly
+navigable copy of the freeze-frame data. The 401s on the raw blobs stop
+mattering.
 
 Recovery therefore reduces to a URL-archaeology problem: given a screen name,
 reconstruct every URL the 2002–2012 site *would have served* for that user,
@@ -143,15 +148,15 @@ Two structural discoveries here carried the whole old-era recovery:
    interchangeably. It encodes nothing.
 2. The **path** digit `M` is real: it maps directly to the image path
    `community.webshots.com/sym/imageM/…`. Verified against the archived 2003
-   photo page for `71105081mpCGrT` — the one photo page from that album the
+   photo page for `71105081mpCGrT`, the one photo page from that album the
    2003 crawlers happened to save.
 
 ### 2.3 The image-server problem (the finding that mattered most)
 
 Every prior Webshots recovery tool assumed you could derive a photo's image
-URL from its thumbnail URL — swap `thumb13` for `image13`, swap `_th` for
-`_fs`, done. **This assumption is false, and it is why those tools missed
-almost everything.**
+URL from its thumbnail URL: swap `thumb13` for `image13`, swap `_th` for
+`_fs`, done. This assumption is false, and it is why those tools missed
+almost everything.
 
 Live CDX probes established the crawl-era mapping is not a mapping at all:
 
@@ -164,16 +169,16 @@ Live CDX probes established the crawl-era mapping is not a mapping at all:
 The image server number is **not derivable from any part of the thumbnail
 URL**. The only authoritative source is the **photo detail page**, whose
 `<img src>` names the real server. The tool therefore resolves every
-crawl-era photo through its archived detail page — one extra request per
+crawl-era photo through its archived detail page: one extra request per
 photo, in exchange for recovery rates going from near-zero to near-total. As
 a side effect, the detail page also yields the photo's **original caption**,
 which comes home in the manifest and gallery.
 
 ### 2.4 The fallback ladder
 
-Archived coverage is uneven — pages without images, images without pages,
+Archived coverage is uneven. Pages without images, images without pages,
 full-size captured as a 404 error page (the crawler arrived after the image
-server gave up; Wayback faithfully preserved the failure). Every photo
+server gave up, and Wayback faithfully preserved the failure). Every photo
 descends:
 
 ```
@@ -182,19 +187,18 @@ real _fs  →  real _ph  →  derived-guess _fs/_ph  →  archived thumbnail
 
 Every downloaded body is validated by JPEG magic bytes, never by HTTP status.
 Definitive absence (a true 404 on every candidate) is cached in a marker file
-so future runs skip it; *ambiguous* failure is deliberately retried forever,
+so future runs skip it. Anything ambiguous gets retried forever on purpose,
 because the Internet Archive occasionally backfills.
 
-### 2.5 Adversarial verification
+### 2.5 Tests and research
 
-Every load-bearing claim in this docket — the non-derivable image servers,
-the CDX `limit=-1` truncation footgun, the old-era host-digit red herring,
-the filmstrip/grid double-emission of thumbnails — was subjected to
-independent refutation attempts against live archive data before being
-accepted into the design. **Twenty-two defects were confirmed in earlier
-versions of this tool by that process. Zero claims survived refutation
-attempts and were later found wrong.** The version you are running is the one
-that survived.
+I didn't take any of this on trust. Every claim got hammered against the
+live archive until it broke or held: the non-derivable image servers, the
+CDX `limit=-1` truncation footgun, the old-era host-digit red herring, the
+filmstrip/grid double-emission of thumbnails. That process confirmed
+twenty-two bugs in earlier versions of this tool, several of which would
+have silently cost users most of their photos. Nothing that survived it has
+been proven wrong since, and §6 is a standing invitation to try.
 
 ---
 
@@ -203,8 +207,8 @@ that survived.
 1. The photographs are not lost. The 2012 deletion destroyed the origin
    server; the Archive Team crawl, ingested into the Wayback Machine,
    preserves a recoverable copy of most public content.
-2. The decade of apparent inaccessibility was a *tooling* failure, not a
-   *data* failure.
+2. The decade of apparent inaccessibility traces to lost tooling. The data
+   itself never went anywhere.
 3. Naive URL derivation — the design basis of every prior recovery tool — is
    unsound and silently loses nearly all photos.
 4. Public albums from fall 2012 recover at high rates, frequently at original
@@ -225,22 +229,22 @@ access restriction of the raw wreckage.
 
 ## 5. Recommendations
 
-**To former Webshots users:** run `search yourscreenname`. It costs nothing
-and takes a minute. Your mother's albums are worth the minute.
+**To former Webshots users:** run `search yourscreenname`. It costs nothing,
+takes about a minute, and your mom's albums might be in there.
 
 **To builders working the Internet Archive:** the CDX API is the whole game.
 Know that `limit=-1` means "last row," that playback rewrites hrefs in two
-different shapes, and that an archived HTTP 404 is still a 200 from Wayback —
-validate bodies, not statuses.
+different shapes, and that an archived HTTP 404 is still a 200 from Wayback.
+Validate bodies, not statuses.
 
-**To the Internet Archive:** you are the only reason any of this exists.
-No findings. Thank you.
+**To the Internet Archive:** I have nothing to recommend to you. You kept
+105.9 TB of strangers' family photos alive for fourteen years. Thank you.
 
 ## 6. Public Assistance Requested
 
-The operator's statement stands: *now I just need everyone to break it
-again.* If a screen name that should work comes back empty, an album recovers
-partially, or an era dialect surfaces that this docket doesn't describe —
+My statement above stands: *now I just need everyone to break it again.*
+If a screen name that should work comes back empty, an album recovers
+partially, or an era dialect surfaces that this docket doesn't describe,
 [file a report](../../issues) with the screen name. Every failure mode gets
 investigated. That's how the last twenty-two got fixed.
 

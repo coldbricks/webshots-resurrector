@@ -1,6 +1,6 @@
 """Core engine: HTTP transport, Wayback API, scraping, downloading.
 
-v1.2 resolution doctrine (from the 2026-07-08 adversarial audit): the
+v1.2 resolution doctrine, proven the hard way against live pulls: the
 image server number is NOT derivable from a thumbnail URL — the only
 reliable source of a photo's real image URL is its archived photo
 detail page.  Download chain per photo:
@@ -512,7 +512,7 @@ class Engine:
         own index doubles as a username autocomplete.  Returns
         ([{name, pages, first, last}, ...], truncated) or None on
         transport failure.  `pages` counts distinct archived user-page
-        URLs — a proxy for how substantial the account was.
+        URLs, a rough proxy for how substantial the account was.
         """
         rows = await self.cdx_search(
             f"community.webshots.com/user/{prefix}",
@@ -564,7 +564,7 @@ class Engine:
 
         Webshots profiles had /user/NAME/people pages (?list=friends,
         ?list=fans, paginated ?start=N) and the crawl captured them —
-        every recovered account doubles as a directory of everyone its
+        every recovered account is also a directory of everyone its
         owner knew.  Returns ([{name, hits, lists}, ...], pages_read)
         or None on transport failure.
         """
@@ -665,7 +665,7 @@ class Engine:
     def thumb_candidates(thumb_url: str, suffix: str = "_fs.jpg") -> list[str]:
         """GUESS image URLs from a thumbnail URL, best-first.
 
-        Crawl-era hosts are audit-confirmed non-derivable (thumb13
+        Crawl-era hosts are proven non-derivable in live pulls (thumb13
         photos live on image04, image12, image20...), so these are
         fallbacks when the photo detail page was never archived.
 

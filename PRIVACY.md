@@ -22,17 +22,17 @@ recover.
 
 ## "I want photos of me removed from the archive"
 
-This tool doesn't host anything, so removal requests can't be handled here —
-but the Internet Archive has a real process for this:
+This tool doesn't host anything, so I can't handle removal requests. The
+Internet Archive can, and they have a real process for this:
 
 - Email **info@archive.org** with the URLs (or describe the Webshots screen
   name/albums) and request exclusion from the Wayback Machine.
 - Their policy: https://archive.org/about/faqs.php#Rights
 
-Once the Archive excludes content, this tool cannot recover it — it has no
+Once the Archive excludes content, this tool can't recover it. There is no
 other source.
 
 ## Private albums
 
 Albums set to private on Webshots were never crawled and are not in the
-archive. No mode of this tool can reach them; nothing here bypasses anything.
+archive. This tool can't reach them, and there's nothing to bypass.
