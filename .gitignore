@@ -1,3 +1,5 @@
+.venv/
+venv/
 cache/
 output*/
 remarks.json

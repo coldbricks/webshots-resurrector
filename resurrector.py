@@ -23,6 +23,27 @@ import sys
 import webbrowser
 from datetime import datetime, timezone
 
+# Fail fast with a map, not a traceback -- the person running this may
+# never have installed a Python package in their life.
+try:
+    import aiohttp   # noqa: F401
+    import bs4       # noqa: F401
+    import httpx     # noqa: F401
+    import rich      # noqa: F401
+except ImportError as exc:
+    print()
+    print(f" Missing part: {getattr(exc, 'name', exc)} -- the tool's dependencies")
+    print(" aren't installed in this Python.")
+    print()
+    print(" On Windows, the easy way: double-click Start_Here.bat. It builds the")
+    print(" tool a private workspace (.venv) and installs everything into it.")
+    print()
+    print(" By hand:   python -m venv .venv")
+    print("            .venv\\Scripts\\activate      (Windows)")
+    print("            source .venv/bin/activate    (macOS/Linux)")
+    print("            pip install -r requirements.txt")
+    raise SystemExit(1)
+
 from lib import __version__
 from lib.engine import Config, Engine, HangarFull, Stats
 from lib.gallery import write_gallery
@@ -62,7 +83,7 @@ def radar_fail(phase_name: str, engine: Engine) -> None:
     """
     if engine.last_status == 429:
         fail(phase_name, "FLOW CONTROL — archive.org is metering this connection")
-        detail("[dim]Not an outage. The archive is up; it is throttling us.[/]")
+        detail("[dim]The archive is fine; it's just rationing this connection.[/]")
         if engine.last_nid:
             detail(
                 f"[dim]Their edge sees this connection as:[/] "
@@ -78,7 +99,7 @@ def radar_fail(phase_name: str, engine: Engine) -> None:
             detail("[dim]Otherwise: wait a few minutes and call again.[/]")
         return
     fail(phase_name, "ATC ZERO — archive.org radar is down")
-    detail("[dim]This is an outage, NOT an empty sky. The photos aren't gone;[/]")
+    detail("[dim]This is an outage. The photos aren't gone;[/]")
     detail("[dim]the radar is. Give it a few minutes and call again.[/]")
 
 
@@ -108,7 +129,7 @@ async def recon(
             f"NO BEACONS CORRELATED — no flight plan on file for CID [target]{username}[/]",
         )
         detail("[dim]ERAM shows no flight plan. STARS shows no primary target.[/]")
-        detail("[dim]Check the spelling — or sweep the frequency for it:[/]")
+        detail("[dim]Check the spelling, or sweep the frequency for it:[/]")
         detail(
             f"[ok]▸[/] [bold]python resurrector.py find {username[:6]}[/] "
             f"[dim]lists every archived callsign matching a prefix[/]"
@@ -213,8 +234,8 @@ async def scan(
 
     if not albums:
         fail("SCAN", "PRIMARY TARGET ONLY — beacon correlated, but no albums read off the strip")
-        detail("[dim]The profile was archived; its album data wasn't. If you didn't[/]")
-        detail("[dim]use --deep, try it — other eras of radar coverage sometimes hold the strips.[/]")
+        detail("[dim]The crawler saved the profile page but missed the album data. If you[/]")
+        detail("[dim]didn't use --deep, try it — other eras of radar coverage sometimes hold the strips.[/]")
         return None
 
     success("SCAN", f"[bold]{len(albums)}[/] albums identified")
@@ -244,7 +265,7 @@ def _merge_album_records(new: dict, old: dict) -> dict:
 
 
 def _go_around_card(username: str) -> None:
-    """Zero recovery must end with a next step, never with silence."""
+    """If a pull recovers nothing, hand the user the next three moves."""
     console.print()
     fail("PULL", "GO-AROUND — nothing recovered this pass")
     detail("[dim]Three things to try, in order:[/]")
@@ -331,7 +352,7 @@ async def cmd_find(
     console.print()
     success("SWEEP", f"[bold]{len(ranked)}[/] beacons correlated on frequency")
     if truncated:
-        warn("SWEEP", "Index scan hit its cap — matches beyond it aren't listed; narrow the prefix")
+        warn("SWEEP", "Index scan hit its cap; narrow the prefix to see the rest")
 
     await say_intentions(shown, engine, top, output_root)
 
@@ -458,8 +479,7 @@ async def cmd_friends(
     console.print()
     success(
         "TRACE",
-        f"[bold]{len(contacts)}[/] associated tracks off {pages_read} archived pages"
-        f" — every name is one search away",
+        f"[bold]{len(contacts)}[/] associated tracks off {pages_read} archived pages",
     )
     if len(contacts) > top:
         detail(f"[dim]{len(contacts) - top} more not shown — raise -n to see them all[/]")
@@ -742,8 +762,8 @@ async def wizard() -> None:
     A double-click on Start_Here.bat lands here — the person on the
     other end may never have used a terminal in their life.
     """
-    detail("[dim]Guided mode. I'll walk you through it — Ctrl+C or Enter on an[/]")
-    detail("[dim]empty line closes this window whenever you're done.[/]")
+    detail("[dim]Guided mode. I'll walk you through it. Ctrl+C (or Enter on an[/]")
+    detail("[dim]empty line) closes this window whenever you're done.[/]")
     cfg = Config()
     async with Engine(cfg) as engine:
         while True:

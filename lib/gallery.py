@@ -56,7 +56,7 @@ def write_gallery(
     )
 
     parts: list[str] = []
-    parts.append(f"<!DOCTYPE html><html><head><meta charset='utf-8'>")
+    parts.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
     parts.append(f"<title>{html.escape(username)} — recovered Webshots photos</title>")
     parts.append(f"<style>{_CSS}</style></head><body>")
     parts.append("<header>")
@@ -73,7 +73,7 @@ def write_gallery(
         ("Albums", len(albums)),
         ("Photos recovered", recovered),
         ("Full-size originals", sum(1 for a in albums for p in a["photos"] if p.get("variant") == "fs")),
-        ("Recovered", f"{stats.get('bytes', 0) / 1024 / 1024:.1f} MB"),
+        ("Downloaded", f"{stats.get('bytes', 0) / 1024 / 1024:.1f} MB"),
     ):
         parts.append(f"<div class='stat'><b>{value}</b>{label}</div>")
     parts.append("</div></header>")
@@ -104,6 +104,16 @@ def write_gallery(
                 f"<span class='badge {badge_cls}'>{badge}</span></div></div>"
             )
         parts.append("</div></section>")
+
+    if not recovered:
+        # A pull that landed nothing still writes a gallery; say so in it
+        # rather than handing the user a blank white page.
+        parts.append(
+            "<section><h2>MISSED APCH</h2><p class='meta'>Nothing landed on "
+            "this pull. The archive may still be holding photos the quick "
+            "scan can't see; try again with --deep, which walks the "
+            "2002–2013 capture history album by album.</p></section>"
+        )
 
     parts.append(
         f"<footer>Recovered {when} · Paisley Ponytail v{__version__} "
