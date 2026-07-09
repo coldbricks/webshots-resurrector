@@ -197,7 +197,7 @@ _MANTRA_STRIP = (
 # Sector designators — 5-letter callsign energy + -R## (radar).
 # Format: XXXXX-R##  or  XXXXX##-R## (5 letters, optional digits, radar id)
 _SECTOR_BOARD = [
-    "SABLE-R41",
+    "PORTR-R41",
     "PYSLY-R90",   # Paisley — this facility
     "RACHL-R67",   # Rachel
     "TAMMY-R11",   # Tammy
@@ -392,6 +392,12 @@ class ScopeApp:
         self._adsb_source = ""
         self._adsb_count = 0
         self._adsb_trails: dict[str, list[tuple[float, float]]] = {}  # id -> [(x,y),...]
+        # Datablock layout: recomputed per poll / filter / resize, NOT per
+        # 80 ms strobe frame — placement is O(n²)-ish and positions only
+        # move when the feed does.
+        self._adsb_offsets: dict[str, tuple[float, float, float]] = {}
+        self._adsb_layout_dirty = True
+        self._adsb_layout_size = (0, 0)
         self._adsb_seen: set[str] = set()
         self._adsb_error = ""
         self._adsb_fetching = False
@@ -455,6 +461,12 @@ class ScopeApp:
         self._adsb_on = bool(self._pro)
         self._apply_title()
         self._rebuild()
+        # Switching INTO Professional replays the full front-door cascade
+        # (intro slides -> gate -> brief -> countdown) even if the position
+        # was already open — the ritual is the point of the mode.
+        if self._pro and self._position_open:
+            self._position_open = False
+            self._show_gate_for_mode()
 
     def _rebuild(self):
         """Tear down and repaint the glass in the current mode.
@@ -1281,6 +1293,89 @@ class ScopeApp:
 
         self._draw_traffic()
 
+    @staticmethod
+    def _adsb_block_lines(ac: dict) -> tuple[str, str]:
+        """The two datablock lines — single source for draw AND layout."""
+        block1 = f"{ac.get('callsign') or '????'}"
+        block2 = f"{ac.get('alt', '----')}  {ac.get('gs', '---')}KT"
+        if ac.get("squawk") and ac["squawk"] not in ("----", ""):
+            block2 += f"  SQ{ac['squawk']}"
+        if ac.get("type"):
+            block2 += f"  {ac['type']}"
+        return block1, block2
+
+    def _layout_datablocks(self, w: int, h: int):
+        """Leader placement so full datablocks don't print over each other.
+
+        STARS-ish: try eight positions around the target, then a farther
+        ring, take the first that doesn't collide with an already-placed
+        block. Emergencies place first. Aircraft that can't be placed at
+        all (dead-center soup) keep the default east leader — rare.
+        Runs per poll / filter / resize, never per strobe frame.
+        """
+        from lib.adsb_feed import geo_to_frac
+
+        # ≈ px/char, Consolas via F(): line1 F(10,bold), line2 F(9)
+        ch1 = F(10)[1] * 0.62
+        ch2 = F(9)[1] * 0.62
+        blk_h = F(10)[1] + F(9)[1] + 14
+        placed: list[tuple[float, float, float, float]] = []
+        offsets: dict[str, tuple[float, float, float]] = {}
+
+        def overlaps(r):
+            return any(
+                not (r[2] < p[0] or p[2] < r[0] or r[3] < p[1] or p[3] < r[1])
+                for p in placed
+            )
+
+        def try_place(x, y, est, bh):
+            # Rings grow like a real leader extending in dense traffic —
+            # a far label with a long leader beats an unreadable near one.
+            for r, v in ((12, 0), (30, 16), (58, 40), (92, 72)):
+                for dx, dy in (
+                    (r, -22 - v), (r, -4), (r, 14 + v),          # east
+                    (-r - est, -22 - v), (-r - est, -4),          # west
+                    (-r - est, 14 + v),
+                    (-est / 2, -30 - bh - v),                    # north
+                    (-est / 2, 18 + v),                          # south
+                ):
+                    rect = (x + dx - 2, y + dy - 9, x + dx + est + 2, y + dy - 9 + bh)
+                    if not overlaps(rect):
+                        placed.append(rect)
+                        return dx, dy
+            return None
+
+        acs = [a for a in self._adsb_aircraft if self._adsb_pass_filter(a)]
+        acs.sort(key=lambda a: (not a.get("emergency"), bool(a.get("on_ground"))))
+        drawn = 0
+        for ac in acs:
+            xf, yf = geo_to_frac(ac["lat"], ac["lon"])
+            if xf < -0.05 or xf > 1.05 or yf < -0.05 or yf > 1.05:
+                continue
+            drawn += 1
+            if drawn > 80:
+                break
+            x, y = w * xf, h * yf
+            b1, b2 = self._adsb_block_lines(ac)
+            # Degrade before you overlap: full block -> short block
+            # (callsign + altitude) -> bare target. Real scopes declutter
+            # the same way; ink never prints over ink.
+            est_full = max(len(b1) * ch1, len(b2) * ch2) + 4
+            est_short = max(len(b1) * ch1, len(str(ac.get("alt", "----"))) * ch2) + 4
+            pos = try_place(x, y, est_full, blk_h)
+            if pos is not None:
+                offsets[ac["id"]] = (pos[0], pos[1], est_full, "full")
+                continue
+            if not ac.get("emergency"):  # an emergency never shrinks
+                pos = try_place(x, y, est_short, blk_h)
+                if pos is not None:
+                    offsets[ac["id"]] = (pos[0], pos[1], est_short, "short")
+                    continue
+            offsets[ac["id"]] = (12, -22, est_short, "dot")
+        self._adsb_offsets = offsets
+        self._adsb_layout_dirty = False
+        self._adsb_layout_size = (w, h)
+
     def _draw_traffic(self):
         c = self.canvas
         c.delete("traffic")
@@ -1295,6 +1390,9 @@ class ScopeApp:
         if self._adsb_on and self._adsb_aircraft:
             from lib.adsb_feed import altitude_color, geo_to_frac
 
+            if self._adsb_layout_dirty or self._adsb_layout_size != (w, h):
+                self._layout_datablocks(w, h)
+
             drawn = 0
             for ac in self._adsb_aircraft:
                 if not self._adsb_pass_filter(ac):
@@ -1304,6 +1402,8 @@ class ScopeApp:
                     continue
                 x, y = w * xf, h * yf
                 aid = ac["id"]
+                if aid not in self._adsb_offsets:
+                    continue  # beyond the layout's readability cap
                 # history trail
                 trail = self._adsb_trails.setdefault(aid, [])
                 trail.append((x, y))
@@ -1358,32 +1458,33 @@ class ScopeApp:
                         outline=C["white"], width=1, tags="adsb",
                     )
 
-                # Full data block — callsign / alt / gs / squawk
-                cs = ac.get("callsign") or "????"
-                block1 = f"{cs}"
-                block2 = f"{ac.get('alt', '----')}  {ac.get('gs', '---')}KT"
-                if ac.get("squawk") and ac["squawk"] not in ("----", ""):
-                    block2 += f"  SQ{ac['squawk']}"
-                if ac.get("type"):
-                    block2 += f"  {ac['type']}"
-                lx, ly = x + 10, y - 18
-                c.create_line(x, y, lx, ly + 8, fill=C["dim"], tags="adsb")
-                c.create_text(
-                    lx, ly,
-                    text=block1,
-                    fill=C["white"] if not emerg else C["red"],
-                    font=F(10, "bold"),
-                    anchor="w",
-                    tags="adsb",
-                )
-                c.create_text(
-                    lx, ly + 14,
-                    text=block2,
-                    fill=col if not emerg else C["orange"],
-                    font=F(9),
-                    anchor="w",
-                    tags="adsb",
-                )
+                # Data block — deconflicted leader + degrade level from
+                # the layout pass ("dot" = target only, glass too dense)
+                block1, block2 = self._adsb_block_lines(ac)
+                dx, dy, est, style = self._adsb_offsets[aid]
+                if style != "dot":
+                    if style == "short":
+                        block2 = str(ac.get("alt", "----"))
+                    lx, ly = x + dx, y + dy
+                    # leader meets the block on the edge facing the target
+                    ex = lx - 2 if dx >= 0 else lx + est + 2
+                    c.create_line(x, y, ex, ly + 8, fill=C["dim"], tags="adsb")
+                    c.create_text(
+                        lx, ly,
+                        text=block1,
+                        fill=C["white"] if not emerg else C["red"],
+                        font=F(10, "bold"),
+                        anchor="w",
+                        tags="adsb",
+                    )
+                    c.create_text(
+                        lx, ly + 14,
+                        text=block2,
+                        fill=col if not emerg else C["orange"],
+                        font=F(9),
+                        anchor="w",
+                        tags="adsb",
+                    )
                 drawn += 1
                 if drawn >= 80:
                     break  # glass readability hard cap
@@ -1441,6 +1542,7 @@ class ScopeApp:
 
     def _set_adsb_filter(self, mode: str):
         self._adsb_filter = mode
+        self._adsb_layout_dirty = True
         for m, b in getattr(self, "_adsb_filter_btns", {}).items():
             on = m == mode
             b.configure(bg=C["green"] if on else C["dim"], fg="#000" if on else C["white"])
@@ -1473,6 +1575,7 @@ class ScopeApp:
             return
         ac = result.get("aircraft") or []
         self._adsb_aircraft = ac
+        self._adsb_layout_dirty = True
         self._adsb_count = len(ac)
         self._adsb_source = result.get("source") or "?"
         emerg = [a for a in ac if a.get("emergency")]
